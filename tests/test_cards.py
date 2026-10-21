@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
-
+import pytest
 
 client = TestClient(app)
 
@@ -121,3 +121,157 @@ def test_update_rejects_null_title():
 
     saved_card = client.get(f"/api/v1/cards/{card_id}")
     assert saved_card.json()["title"] == "Keep this title"
+
+def test_move_card_from_spec_to_ready():
+    created = client.post(
+        "/api/v1/cards",
+        json={"title": "First task", "goal": "Test stage transitions"},
+    )
+    card_id = created.json()["id"]
+
+    response = client.patch(
+        f"/api/v1/cards/{card_id}/stage",
+        json={"stage": "Ready"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stage"] == "Ready"
+
+    saved = client.get(f"/api/v1/cards/{card_id}")
+    assert saved.json()["stage"] == "Ready"
+
+
+def test_cannot_move_card_from_spec_to_done():
+    created = client.post(
+        "/api/v1/cards",
+        json={"title": "First task", "goal": "Test illegal transitions"},
+    )
+    card_id = created.json()["id"]
+
+    response = client.patch(
+        f"/api/v1/cards/{card_id}/stage",
+        json={"stage": "Done"},
+    )
+
+    assert response.status_code == 409
+
+    saved = client.get(f"/api/v1/cards/{card_id}")
+    assert saved.json()["stage"] == "Spec"
+
+@pytest.mark.parametrize(
+    "next_stage",
+    ["Building", "Checks", "Validation", "Done"],
+)
+def test_cannot_skip_stages_from_spec(next_stage):
+    created = client.post(
+        "/api/v1/cards",
+        json={"title": "Task", "goal": "Check stage rules"},
+    )
+    card_id = created.json()["id"]
+
+    response = client.patch(
+        f"/api/v1/cards/{card_id}/stage",
+        json={"stage": next_stage},
+    )
+
+    assert response.status_code == 409
+
+    saved = client.get(f"/api/v1/cards/{card_id}")
+    assert saved.json()["stage"] == "Spec"
+
+
+def test_card_can_complete_full_workflow():
+    created = client.post(
+        "/api/v1/cards",
+        json={"title": "Task", "goal": "Complete the workflow"},
+    )
+    card_id = created.json()["id"]
+
+    for stage in ["Ready", "Building", "Checks", "Validation", "Done"]:
+        response = client.patch(
+            f"/api/v1/cards/{card_id}/stage",
+            json={"stage": stage},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["stage"] == stage
+
+
+def test_unknown_stage_returns_422():
+    created = client.post(
+        "/api/v1/cards",
+        json={"title": "Task", "goal": "Reject unknown stages"},
+    )
+    card_id = created.json()["id"]
+
+    response = client.patch(
+        f"/api/v1/cards/{card_id}/stage",
+        json={"stage": "Banana"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_change_stage_of_missing_card_returns_404():
+    response = client.patch(
+        "/api/v1/cards/999/stage",
+        json={"stage": "Ready"},
+    )
+
+    assert response.status_code == 404
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ["Ready", "Building", "Checks"],
+        ["Ready", "Building", "Checks", "Validation"],
+    ],
+)
+def test_card_can_be_sent_back_to_building(path):
+    created = client.post(
+        "/api/v1/cards",
+        json={"title": "Task", "goal": "Test returning work"},
+    )
+    card_id = created.json()["id"]
+
+    for stage in path:
+        response = client.patch(
+            f"/api/v1/cards/{card_id}/stage",
+            json={"stage": stage},
+        )
+        assert response.status_code == 200
+
+    response = client.patch(
+        f"/api/v1/cards/{card_id}/stage",
+        json={"stage": "Building"},
+    )
+
+    assert response.status_code == 200
+
+    saved = client.get(f"/api/v1/cards/{card_id}")
+    assert saved.json()["stage"] == "Building"
+
+
+def test_done_card_cannot_return_to_building():
+    created = client.post(
+        "/api/v1/cards",
+        json={"title": "Task", "goal": "Test terminal stage"},
+    )
+    card_id = created.json()["id"]
+
+    for stage in ["Ready", "Building", "Checks", "Validation", "Done"]:
+        response = client.patch(
+            f"/api/v1/cards/{card_id}/stage",
+            json={"stage": stage},
+        )
+        assert response.status_code == 200
+
+    response = client.patch(
+        f"/api/v1/cards/{card_id}/stage",
+        json={"stage": "Building"},
+    )
+
+    assert response.status_code == 409
+
+    saved = client.get(f"/api/v1/cards/{card_id}")
+    assert saved.json()["stage"] == "Done"

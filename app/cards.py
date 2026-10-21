@@ -1,11 +1,17 @@
 from fastapi import APIRouter, HTTPException, status
 
 from app import storage
-from app.schemas import CardCreate, CardUpdate
-
+from app.schemas import CardCreate, CardStageUpdate, CardUpdate
 
 router = APIRouter(prefix="/api/v1/cards", tags=["Cards"])
-
+ALLOWED_TRANSITIONS = {
+    "Spec": {"Ready"},
+    "Ready": {"Building"},
+    "Building": {"Checks"},
+    "Checks": {"Validation", "Building"},
+    "Validation": {"Done", "Building"},
+    "Done": set(),
+}
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_card(payload: CardCreate):
@@ -56,3 +62,28 @@ def delete_card(card_id: int):
 
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
+
+@router.patch("/{card_id}/stage")
+def change_card_stage(card_id: int, payload: CardStageUpdate):
+    card = storage.cards.get(card_id)
+
+    if card is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Card not found",
+        )
+
+    current_stage = card["stage"]
+    requested_stage = payload.stage.value
+
+    if requested_stage not in ALLOWED_TRANSITIONS[current_stage]:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Cannot move card from {current_stage} "
+                f"to {requested_stage}"
+            ),
+        )
+
+    card["stage"] = requested_stage
+    return card

@@ -40,3 +40,18 @@ class CardUpdate(BaseModel):
                     raise ValueError(f"{field} cannot be null")
 
         return data
+    
+from enum import Enum
+class CardStage(str, Enum):
+    SPEC = "Spec"
+    READY = "Ready"
+    BUILDING = "Building"
+    CHECKS = "Checks"
+    VALIDATION = "Validation"
+    DONE = "Done"
+
+
+class CardStageUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: CardStage
