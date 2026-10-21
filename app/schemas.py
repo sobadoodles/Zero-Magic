@@ -1,7 +1,12 @@
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
-
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 NonBlankText = Annotated[
     str,
@@ -25,3 +30,13 @@ class CardUpdate(BaseModel):
     goal: NonBlankText | None = None
     acceptance_criteria: list[NonBlankText] | None = None
     out_of_scope: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_null_values(cls, data):
+        if isinstance(data, dict):
+            for field, value in data.items():
+                if value is None:
+                    raise ValueError(f"{field} cannot be null")
+
+        return data

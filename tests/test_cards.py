@@ -101,3 +101,23 @@ def test_delete_card():
 
     get_response = client.get("/api/v1/cards/1")
     assert get_response.status_code == 404
+
+def test_update_rejects_null_title():
+    created = client.post(
+        "/api/v1/cards",
+        json={
+            "title": "Keep this title",
+            "goal": "Test update validation",
+        },
+    )
+    card_id = created.json()["id"]
+
+    response = client.patch(
+        f"/api/v1/cards/{card_id}",
+        json={"title": None},
+    )
+
+    assert response.status_code == 422
+
+    saved_card = client.get(f"/api/v1/cards/{card_id}")
+    assert saved_card.json()["title"] == "Keep this title"
