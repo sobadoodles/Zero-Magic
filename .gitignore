@@ -10,3 +10,4 @@ foreach ($rule in $rules) {
         Add-Content -Path .gitignore -Value $rule
     }
 }
+data/
