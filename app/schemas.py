@@ -55,3 +55,19 @@ class CardStageUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     stage: CardStage
+
+
+class CommentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: NonBlankText = Field(max_length=10000)
+
+
+class CommentRead(BaseModel):
+    id: int
+    card_id: int
+    author: str
+    text: str
+    author_id: int | None = None
+    created_at: str | None = None
+    user_id: int | None = None

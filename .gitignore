@@ -4,3 +4,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .env
+$rules = @('.env', '.env.*', '!.env.example', '.venv/', '.venv-*/', '__pycache__/', '.pytest_cache/', 'data/', 'backups/', 'workspace-export*.json', '*.sqlite3', '*.sqlite3-wal', '*.sqlite3-shm')
+foreach ($rule in $rules) {
+    if (!(Test-Path .gitignore) -or !((Get-Content .gitignore) -contains $rule)) {
+        Add-Content -Path .gitignore -Value $rule
+    }
+}

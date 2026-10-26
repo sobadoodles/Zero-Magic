@@ -275,3 +275,37 @@ def test_done_card_cannot_return_to_building():
 
     saved = client.get(f"/api/v1/cards/{card_id}")
     assert saved.json()["stage"] == "Done"
+
+def test_add_and_list_card_comments():
+    created = client.post(
+        "/api/v1/cards",
+        json={
+            "title": "Comment test",
+            "goal": "Discuss a card",
+        },
+    )
+    card_id = created.json()["id"]
+    comments_url = f"/api/v1/cards/{card_id}/comments"
+
+    empty = client.get(comments_url)
+    assert empty.status_code == 200
+    assert empty.json() == []
+
+    added = client.post(
+        comments_url,
+        json={
+            "author": "  Intern  ",
+            "text": "  This is ready for review.  ",
+        },
+    )
+
+    assert added.status_code == 201
+    comment = added.json()
+    assert isinstance(comment["id"], int)
+    assert comment["card_id"] == card_id
+    assert comment["author"] == "Intern"
+    assert comment["text"] == "This is ready for review."
+
+    listed = client.get(comments_url)
+    assert listed.status_code == 200
+    assert listed.json() == [comment]

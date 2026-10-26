@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zero Magic — Board</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script defer src="/static/vendor/marked.umd.js"></script>
+  <script defer src="/static/vendor/purify.min.js"></script>
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+<section id="auth-screen" class="auth-screen" aria-labelledby="auth-heading" hidden>
+  <div class="auth-brand"><p class="eyebrow">Zero Magic · Your workspace</p><h1>Good work starts<br>with <em>your people.</em></h1><p class="muted">One shared board. A clear plan.<br>A place for every conversation.</p></div>
+  <div class="auth-card"><p class="eyebrow" id="auth-eyebrow">Welcome back</p><h2 id="auth-heading">Sign in.</h2><p class="muted small" id="auth-description">Your cards and conversations are waiting.</p>
+    <form id="auth-form"><div id="auth-profile-field" hidden><label for="auth-profile">Your existing team profile</label><select id="auth-profile"><option value="">Create a new profile</option></select><p class="muted small">If you imported your old board, select yourself to keep existing assignments connected.</p></div><div id="auth-name-field" hidden><label for="auth-name">Your name</label><input id="auth-name" maxlength="100" autocomplete="name"></div><label for="auth-username">Username</label><input id="auth-username" required minlength="3" maxlength="40" pattern="[a-zA-Z0-9_.-]{3,40}" autocomplete="username" autocapitalize="none" spellcheck="false"><label for="auth-password">Password</label><input id="auth-password" type="password" required minlength="12" maxlength="128" autocomplete="current-password"><p class="muted small" id="password-hint">Use the password you chose for this workspace.</p><p id="auth-error" class="feedback" role="alert"></p><button type="submit" id="auth-submit" class="button-primary">Sign in</button></form>
+    <p class="muted small" id="auth-help">Need an account? Ask the workspace owner for an invitation.</p>
+  </div>
+</section>
+<div class="workspace" id="workspace" hidden>
+  <header class="page-header">
+    <div><p class="eyebrow">Zero Magic · Your workspace</p><h1>Make room for <em>what’s next.</em></h1></div>
+    <div class="header-actions"><button id="account-open" class="account-button" aria-label="Your account"></button><button id="team-open" class="button-quiet">People <span id="people-count">0</span></button><button id="assistant-open" class="button-quiet">✧ Plan with AI</button></div>
+  </header>
+  <main>
+    <div class="board-heading"><div><h2>The board.</h2><p class="muted">Click a title to edit. Open a card for the details.</p></div><div class="board-actions"><label class="sr-only" for="person-filter">Filter by person</label><select id="person-filter"><option value="">Everyone</option></select><button id="refresh" class="button-quiet" aria-label="Refresh board">↻ Refresh</button><button id="new-card" class="button-primary">+ Add card</button></div></div>
+    <p id="message" class="feedback" role="status" aria-live="polite"></p>
+    <div class="board-shell"><div class="board-toolbar"><span class="live-dot" aria-hidden="true"></span><span>Development funnel</span><span id="board-total">Loading…</span></div><div class="board-scroll" role="region" tabindex="0" aria-label="Task board. Scroll horizontally for all stages."><div id="board" class="board-columns"></div></div></div>
+    <p class="workspace-note">Saved locally in SQLite · Cards, people, and discussions stay after a restart.</p>
+  </main>
+</div>
+
+<dialog id="create-dialog" aria-labelledby="create-heading">
+  <header class="dialog-header"><div><p class="eyebrow">Start with intent</p><h2 id="create-heading">A new card.</h2></div><button class="icon-button" data-close aria-label="Close new card">×</button></header>
+  <form id="card-form"><label for="card-title">Title</label><input id="card-title" name="title" placeholder="What needs to be built?" required maxlength="500"><label for="card-goal">Goal</label><textarea id="card-goal" name="goal" rows="3" placeholder="What should this achieve?" required></textarea><p class="muted small">Starts in Spec. Add details and an assignee after creating it.</p><p class="feedback" role="status"></p><div class="form-actions"><button type="button" data-close>Cancel</button><button class="button-primary" type="submit">Create card</button></div></form>
+</dialog>
+
+<dialog id="details" aria-labelledby="detail-heading">
+  <header class="dialog-header"><div><p class="eyebrow" id="card-reference">Card</p><h2 id="detail-heading">Card details</h2></div><button class="icon-button" data-close aria-label="Close card">×</button></header>
+  <p id="detail-message" class="feedback" role="status" aria-live="polite"></p>
+  <div id="card-fields"></div>
+  <div class="properties"><div><label for="stage-select">Stage</label><select id="stage-select"></select></div><div><label for="assignee-select">Assigned to</label><select id="assignee-select"></select></div></div>
+  <p id="stage-hint" class="muted small"></p>
+  <div class="discussion-link"><button id="open-discussion" type="button">Open discussion ↗</button><p class="muted small">Open the conversation to read replies or add a comment.</p></div>
+</dialog>
+
+<dialog id="team-dialog" aria-labelledby="team-heading">
+  <header class="dialog-header"><div><p class="eyebrow">The people behind the work</p><h2 id="team-heading">Your team.</h2></div><button class="icon-button" data-close aria-label="Close people">×</button></header>
+  <p class="muted small">Skills help match work to people. The owner can invite teammates to create their own login.</p><p id="team-message" class="feedback" role="status"></p><div id="people-list"></div>
+  <form id="person-form"><h3 id="person-form-heading">Add a person</h3><label for="person-name">Name</label><input id="person-name" name="name" required maxlength="100"><label for="person-skills">Skills <span class="muted small">— separated by commas</span></label><input id="person-skills" name="skills" placeholder="Python, FastAPI, testing"><label for="person-role">Responsibility / context</label><textarea id="person-role" name="responsibility" rows="2" placeholder="What do they usually work on?"></textarea><div class="form-actions"><button type="button" id="cancel-person-edit" hidden>Cancel edit</button><button type="submit" class="button-primary">Add person</button></div></form>
+</dialog>
+
+<dialog id="assistant-dialog" class="assistant-panel" aria-labelledby="assistant-heading">
+  <header class="dialog-header"><div><p class="eyebrow">Think it through</p><h2 id="assistant-heading">Your planning partner.</h2></div><button class="icon-button" data-close aria-label="Close assistant">×</button></header>
+  <p class="assistant-notice">Discuss first. Preview cards, approve creation, then separately approve assignments.</p>
+  <div id="chat-history" class="chat-history" role="log" aria-live="polite" aria-label="Planning conversation"><div class="chat-welcome"><span class="sparkle" aria-hidden="true">✧</span><h3>What are you thinking of building?</h3><p>Describe an idea, a change of direction, or something that feels too big. We’ll break it down together.</p></div></div>
+  <section id="proposal-panel" class="proposal-panel" hidden aria-label="Review proposed changes"></section>
+  <p id="chat-message" class="feedback" role="status"></p><form id="chat-form"><label for="chat-input" class="sr-only">Your message</label><textarea id="chat-input" rows="3" maxlength="6000" required placeholder="I’d like to add…"></textarea><div class="chat-actions"><div class="assistant-tools"><button type="button" id="preview-plan">Preview cards</button><button type="button" id="suggest-assignments" hidden>Suggest assignments</button><button type="button" id="clear-chat" class="button-quiet">New conversation</button></div><button class="button-primary" type="submit">Send ↗</button></div></form><p class="muted small">Approvals apply only the displayed preview. Conversation stays in this tab until reload. Workspace context is sent to Groq.</p>
+</dialog>
+<dialog id="thread-dialog" class="thread-panel" aria-labelledby="thread-title">
+  <header class="dialog-header"><div><p class="eyebrow" id="thread-reference">Card discussion</p><h2 id="thread-title">Discussion</h2></div><button class="icon-button" data-close aria-label="Close discussion">×</button></header>
+  <p class="muted small">Replies are posted from your signed-in account. Refreshes every 8 seconds while open.</p>
+  <div id="thread-messages" class="thread-messages" role="log" aria-live="polite" aria-label="Card discussion messages"></div>
+  <p id="thread-status" class="feedback" role="status"></p>
+  <form id="thread-form"><div class="composer-identity"><span id="composer-avatar" class="avatar"></span><span id="composer-name"></span></div><label for="thread-text" class="sr-only">Your reply</label><textarea id="thread-text" rows="2" maxlength="10000" required placeholder="Write a comment…"></textarea><div class="form-actions"><button class="button-primary" type="submit">Comment</button></div></form>
+</dialog>
+<dialog id="account-dialog" aria-labelledby="account-heading">
+  <header class="dialog-header"><div><p class="eyebrow">Your workspace identity</p><h2 id="account-heading">Your account.</h2></div><button class="icon-button" data-close aria-label="Close account">×</button></header>
+  <p id="account-description" class="muted"></p><p class="small muted">Comments use your account automatically. On a shared computer, sign out when you’re finished.</p><p id="account-message" class="feedback" role="status"></p><div class="form-actions"><button id="sign-out">Sign out</button></div>
+</dialog>
+<dialog id="invite-dialog" aria-labelledby="invite-heading">
+  <header class="dialog-header"><div><p class="eyebrow">Make room for a teammate</p><h2 id="invite-heading">Invite to the board.</h2></div><button class="icon-button" data-close aria-label="Close invitation">×</button></header>
+  <p class="muted small">This private link lets this person choose a username and password. It works once and expires in 48 hours. Generating another link replaces the old one.</p><label for="invite-url">Invitation link</label><input id="invite-url" readonly><p class="muted small">A localhost link only works on this computer. For other devices, use a properly configured shared server address. Share the link privately.</p><p id="invite-message" class="feedback" role="status"></p><div class="form-actions"><button id="copy-invite" class="button-primary">Copy link</button></div>
+</dialog>
+</body>
+</html>

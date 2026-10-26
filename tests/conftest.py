@@ -1,11 +1,16 @@
-from itertools import count
+"""A throwaway database must be selected BEFORE any application import.
 
-import pytest
+Replace the old tests/conftest.py (which only cleared in-memory dictionaries).
+Never run tests using the real workspace database.
+"""
+import os
+import sys
+import tempfile
+from pathlib import Path
 
-from app import storage
+if 'app.storage' in sys.modules:
+    raise RuntimeError('Application imported before test database selection. Restart pytest.')
+_TEST_DIR=tempfile.TemporaryDirectory(prefix='zero-magic-pytest-')
+os.environ['ZERO_MAGIC_DB']=str(Path(_TEST_DIR.name)/'workspace.sqlite3')
 
-
-@pytest.fixture(autouse=True)
-def reset_storage():
-    storage.cards.clear()
-    storage.card_ids = count(start=1)
+os.environ["ALLOWED_HOSTS"]="localhost,127.0.0.1,testserver"
