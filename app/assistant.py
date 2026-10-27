@@ -33,6 +33,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     conversation_id: UUID
+    project_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
     prd_id: UUID | None = None
     prd_revision: int | None = Field(default=None, ge=1, strict=True)
     messages: list[ChatMessage] = Field(min_length=1, max_length=40)
@@ -151,6 +152,8 @@ def save_proposal(kind, data, payload, baseline, user_id):
 
 @router.post("/chat")
 def chat(payload: ChatRequest, user=Depends(require_user)):
+    from app.projects import validate_project
+    validate_project(payload.project_id)
     user_id = user["id"]
     if payload.messages[-1].role != "user":
         raise HTTPException(422, "The last message must be from the user.")
@@ -162,7 +165,8 @@ def chat(payload: ChatRequest, user=Depends(require_user)):
         # A new user instruction supersedes any unconfirmed older preview.
         invalidate_pending(payload.conversation_id, user_id)
 
-    context = json.dumps(baseline, ensure_ascii=False)
+    scoped_cards = [c for c in baseline["cards"] if (c["id"] in payload.target_card_ids if payload.mode=="assign" else c.get("project_id")==payload.project_id)]
+    context = json.dumps({**baseline,"cards":scoped_cards,"selected_project":storage.projects.get(payload.project_id)}, ensure_ascii=False)
     if len(context) > 30000:
         raise HTTPException(413, "Workspace context is too large for this chat version.")
 
@@ -230,10 +234,11 @@ def chat(payload: ChatRequest, user=Depends(require_user)):
                     raise ValueError("Invalid clarification")
                 return {"message": question.strip(), "model": answer["model"], "proposal": None}
             parsed = PlanDraft.model_validate(decoded)
-            existing_titles = {c["title"].strip().casefold() for c in baseline["cards"]}
+            existing_titles = {c["title"].strip().casefold() for c in baseline["cards"] if c.get("project_id") == payload.project_id}
             if any(c.title.casefold() in existing_titles for c in parsed.cards):
                 raise HTTPException(409, "The draft repeats an existing card title. Ask for only new work or edit the existing card manually. Nothing was created.")
             data = parsed.model_dump()
+            data["project_id"] = payload.project_id
         else:
             parsed = AssignmentPlan.model_validate_json(answer["message"])
             suggested_ids = [a.card_id for a in parsed.assignments]
@@ -278,8 +283,13 @@ def confirm(proposal_id: UUID, payload: Confirmation, user=Depends(require_user)
         if record["baseline"] != fingerprint(snapshot()):
             raise HTTPException(409, "The board or team changed. Review a fresh preview before applying changes.")
 
+        if record["kind"] not in {"cards", "assignments"}:
+            raise HTTPException(422, "Use the project deletion confirmation screen for this operation.")
         if record["kind"] == "cards":
             # Validate the whole batch before allocating IDs or writing anything.
+            from app.projects import validate_project
+            project_id = record["data"].get("project_id")
+            validate_project(project_id)
             prd_source = record["data"].get("prd")
             if prd_source:
                 from app.prd_schemas import Breakdown
@@ -287,10 +297,10 @@ def confirm(proposal_id: UUID, payload: Confirmation, user=Depends(require_user)
                 if not document or document["revision"] != prd_source["revision"]:
                     raise HTTPException(409, "The brief changed. Review a fresh preview.")
                 plan = Breakdown.model_validate({"cards":record["data"]["cards"]})
-                inputs = [CardCreate.model_validate(c.model_dump(exclude={"key","depends_on"})) for c in plan.cards]
+                inputs = [CardCreate.model_validate({**c.model_dump(exclude={"key","depends_on","project_id"}),"project_id":project_id}) for c in plan.cards]
             else:
-                plan = PlanDraft.model_validate(record["data"])
-                inputs = [CardCreate.model_validate(c.model_dump()) for c in plan.cards]
+                plan = PlanDraft.model_validate({"cards":record["data"]["cards"]})
+                inputs = [CardCreate.model_validate({**c.model_dump(exclude={"project_id"}),"project_id":project_id}) for c in plan.cards]
             created = []
             before = deepcopy(storage.cards)
             try:

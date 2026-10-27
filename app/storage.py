@@ -45,6 +45,7 @@ with connection() as db:
     CREATE TABLE IF NOT EXISTS people (id INTEGER PRIMARY KEY, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS proposals (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS prds (id TEXT PRIMARY KEY, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS prd_revisions (prd_id TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(prd_id,revision));
     CREATE TABLE IF NOT EXISTS prd_generation_requests (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, started_at REAL NOT NULL, active INTEGER NOT NULL);
@@ -74,6 +75,7 @@ people = load_table("people")
 comments = load_table("comments")
 proposals = load_table("proposals")
 prds = load_table("prds")
+projects = load_table("projects")
 
 
 class Counter:
@@ -99,7 +101,7 @@ person_ids = counter("people", people)
 
 
 def snapshot():
-    return deepcopy((cards, people, comments, proposals, card_ids, comment_ids, person_ids, prds))
+    return deepcopy((cards, people, comments, proposals, card_ids, comment_ids, person_ids, prds, projects))
 
 
 def restore(data):
@@ -110,16 +112,19 @@ def restore(data):
     card_ids, comment_ids, person_ids = data[4:7]
     prds.clear()
     prds.update(data[7])
+    projects.clear()
+    projects.update(data[8])
 
 
 def flush(db):
     # Small-workspace unit of work: update snapshots atomically; never persist
     # passwords or tokens in entity JSON. Separate credential tables below.
-    for table, records in (("people", people), ("cards", cards), ("comments", comments), ("proposals", proposals), ("prds", prds)):
+    for table, records in (("people", people), ("cards", cards), ("comments", comments), ("proposals", proposals), ("prds", prds), ("projects", projects)):
         db.executemany(f"INSERT INTO {table}(id,data) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
                        [(key, json.dumps(value, ensure_ascii=False)) for key, value in records.items()])
         existing = {row[0] for row in db.execute(f"SELECT id FROM {table}")}
         db.executemany(f"DELETE FROM {table} WHERE id=?", [(key,) for key in existing - records.keys()])
+    db.execute("DELETE FROM prd_revisions WHERE prd_id NOT IN (SELECT id FROM prds)")
     for doc in prds.values():
         db.execute("INSERT OR IGNORE INTO prd_revisions VALUES (?,?,?)", (doc["id"],doc["revision"],json.dumps(doc,ensure_ascii=False)))
     for name, iterator in (("cards", card_ids), ("comments", comment_ids), ("people", person_ids)):

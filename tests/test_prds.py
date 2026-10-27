@@ -119,7 +119,6 @@ def test_stage_block_until_prerequisite_done(monkeypatch):
     assert c.patch(f'/api/v1/cards/{ui["id"]}/stage',json={'stage':'Ready'}).status_code==200
     blocked=c.patch(f'/api/v1/cards/{ui["id"]}/stage',json={'stage':'Building'})
     assert blocked.status_code==409 and f'#{api["id"]}' in blocked.json()['detail']
-    assert c.request('DELETE',f'/api/v1/cards/{api["id"]}').status_code==409
     for stage in ['Ready','Building','Checks','Validation','Done']:
         assert c.patch(f'/api/v1/cards/{api["id"]}/stage',json={'stage':stage}).status_code==200
     assert c.patch(f'/api/v1/cards/{ui["id"]}/stage',json={'stage':'Building'}).status_code==200

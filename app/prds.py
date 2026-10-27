@@ -52,6 +52,8 @@ def list_prds():
 @router.post("", status_code=201)
 @storage.synchronized
 def create_prd(payload: PRDInput, user=Depends(require_user)):
+    from app.projects import validate_project
+    validate_project(payload.project_id)
     if len(storage.prds) >= 100:
         raise HTTPException(409, "This local workspace supports up to 100 saved briefs.")
     now = datetime.now(timezone.utc).isoformat()
@@ -80,6 +82,8 @@ def get_revision(prd_id: UUID, revision: int):
 @router.put("/{prd_id}")
 @storage.synchronized
 def update_prd(prd_id: UUID, payload: PRDUpdate, user=Depends(require_user)):
+    from app.projects import validate_project
+    validate_project(payload.project_id)
     record = read_prd(prd_id)
     if not user["is_admin"] and record["owner_id"] != user["id"]:
         raise HTTPException(403, "Only the brief's creator or owner can edit it.")
@@ -128,7 +132,7 @@ def breakdown(prd_id: UUID, payload: BreakdownRequest, user=Depends(require_user
     history = [m.model_dump() for m in payload.messages]
     if sum(len(m["content"]) for m in history) > 18000:
         raise HTTPException(413, "Conversation is too long for this breakdown. Start a shorter discussion.")
-    context = json.dumps({"brief":{"title":document["title"],"content":document["content"]},"board":baseline},ensure_ascii=False)
+    context = json.dumps({"brief":{"title":document["title"],"content":document["content"]},"board":{**baseline,"cards":[c for c in baseline["cards"] if c.get("project_id")==document.get("project_id")]}},ensure_ascii=False)
     if len(context) + sum(len(m["content"]) for m in history) > 48000:
         raise HTTPException(413, "The brief, board, and conversation are too large. Use a smaller brief or shorter discussion.")
     messages = [
@@ -148,11 +152,11 @@ def breakdown(prd_id: UUID, payload: BreakdownRequest, user=Depends(require_user
         with storage.transaction():
             if read_prd(prd_id)["revision"] != document["revision"]:
                 raise HTTPException(409, "The brief changed while drafting. Request a fresh preview.")
-            existing = {c["title"].strip().casefold() for c in storage.cards.values()}
+            existing = {c["title"].strip().casefold() for c in storage.cards.values() if c.get("project_id") == document.get("project_id")}
             if any(c.title.casefold() in existing for c in parsed.cards):
                 raise HTTPException(409, "The draft repeats an existing card title. Ask for only new work. Nothing was created.")
             data = {"cards":[c.model_dump() for c in parsed.cards],
-                    "prd":{"id":document["id"],"revision":document["revision"],"title":document["title"]}}
+                    "prd":{"id":document["id"],"revision":document["revision"],"title":document["title"]}, "project_id":document.get("project_id")}
             proposal = assistant.save_proposal("cards",data,payload,baseline,user["id"])
         return {"message":f"Here are {len(parsed.cards)} proposed cards from your brief. Review the dependencies before creating them.","model":answer["model"],"proposal":proposal}
     except ModelUnavailableError as error:

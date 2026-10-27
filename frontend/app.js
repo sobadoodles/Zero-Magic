@@ -2,7 +2,7 @@
 const $ = selector => document.querySelector(selector);
 const STAGES = ["Spec", "Ready", "Building", "Checks", "Validation", "Done"];
 const MOVES = {Spec:["Ready"], Ready:["Building"], Building:["Checks"], Checks:["Validation","Building"], Validation:["Done","Building"], Done:[]};
-const state = {cards:[], people:[], peopleReady:false, selected:null, opener:null, detailsVersion:0, loadVersion:0, history:[], chatBusy:false, personEdit:null, chatId:crypto.randomUUID(), proposal:null, lastCreated:[], threadId:null, threadVersion:0, threadBusy:false, selectedPRD:null, briefEdit:null, briefs:[], briefSource:"Pasted brief", authEpoch:0, user:null, authMode:"login", inviteToken:null};
+const state = {projects:[], chatProjectId:null, projectEdit:null, deletion:null, cards:[], people:[], peopleReady:false, selected:null, opener:null, detailsVersion:0, loadVersion:0, history:[], chatBusy:false, personEdit:null, chatId:crypto.randomUUID(), proposal:null, lastCreated:[], threadId:null, threadVersion:0, threadBusy:false, selectedPRD:null, briefEdit:null, briefs:[], briefSource:"Pasted brief", authEpoch:0, user:null, authMode:"login", inviteToken:null};
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -54,6 +54,7 @@ function showDialog(dialog, opener) {
 }
 function closeDialog(dialog) {
   if(dialog.id==="brief-dialog" && state.briefBusy)return;
+  if(dialog.id==="project-delete-dialog" && state.deleting)return;
   if(dialog.id==="brief-dialog" && state.briefDirty && !confirm("Close without saving these brief edits?"))return;
   if (dialog.querySelector(".inline-editor [type=submit]:disabled")) return;
   if (dialog.querySelector(".inline-editor") && !confirm("Discard the unsaved field edit?")) return;
@@ -112,8 +113,9 @@ function renderPersonFilter() {
 function renderBoard() {
   const board = $("#board"); board.replaceChildren();
   const filter = $("#person-filter").value;
-  const visible = state.cards.filter(c => !filter || (filter === "unassigned" ? !c.assignee : String(c.assignee?.identifier) === filter));
-  $("#board-total").textContent = `${visible.length}${filter ? ` of ${state.cards.length}` : ""} ${state.cards.length === 1 ? "card" : "cards"}`;
+  const projectFilter=$("#project-filter").value;
+  const visible = state.cards.filter(c => (!filter || (filter === "unassigned" ? !c.assignee : String(c.assignee?.identifier) === filter)) && (!projectFilter || (projectFilter==="__none__" ? !c.project_id : c.project_id===projectFilter)));
+  $("#board-total").textContent = `${visible.length}${filter || projectFilter ? ` of ${state.cards.length}` : ""} ${state.cards.length === 1 ? "card" : "cards"}`;
   for (const stage of STAGES) {
     const column = node("section", "board-column"); column.dataset.stage = stage;
     const matches = visible.filter(c => c.stage === stage);
@@ -133,7 +135,8 @@ function renderBoard() {
       title.addEventListener("click", () => editField(title, card, "title", false));
       const goal = button(card.goal,"editable card-goal"); goal.setAttribute("aria-label",`Edit goal for ${card.title}`);
       goal.addEventListener("click", () => editField(goal, card, "goal", true));
-      article.append(title,goal);
+      const label=projectBadge(card.project_id,true);label.addEventListener("click",async()=>{try{await openCard(card.id,label);$("#card-project").focus();}catch(e){notify("#message",e.message,true);}});
+      article.append(label,title,goal);
       const bottom = node("div","card-bottom");
       const assign = button("", "member-chip"); const name = assigneeName(card);
       assign.setAttribute("aria-label",`Assign ${card.title}. Current: ${name}`);
@@ -162,7 +165,7 @@ function editField(display, card, field, multiline) {
   const active = scope.querySelector(".inline-editor");
   if (active) { active.querySelector("input,textarea").focus(); return; }
   const boardControls = display.closest("#board")
-    ? [$("#new-card"), $("#team-open"), $("#person-filter"), $("#refresh")]
+    ? [$("#new-card"), $("#team-open"), $("#person-filter"), $("#project-filter"), $("#projects-open"), $("#refresh")]
     : [];
   boardControls.forEach(el => { el.disabled = true; });
   const form = node("form", "inline-editor");
@@ -249,7 +252,7 @@ async function openCard(id,opener) {
   if (version !== state.detailsVersion) return;
   state.selected = id; notify("#detail-message");
   $("#card-reference").textContent = `Card #${id}`;
-  renderFields(card); renderStage(card); renderAssignee(card);
+  renderFields(card); renderStage(card); renderAssignee(card);$("#card-project").value=card.project_id || "";
   showDialog($("#details"),opener);
 }
 $("#stage-select").addEventListener("change",async event => {
@@ -271,13 +274,13 @@ $("#assignee-select").addEventListener("change",async event => {
   });
   if (state.selected === id) renderAssignee(state.cards.find(c => c.id === id));
 });
-function openCreate(opener) {notify($("#card-form .feedback")); showDialog($("#create-dialog"),opener);}
+function openCreate(opener) {$("#create-project").value=state.projects.some(p=>p.id===$("#project-filter").value) ? $("#project-filter").value : "";notify($("#card-form .feedback")); showDialog($("#create-dialog"),opener);}
 $("#new-card").addEventListener("click",event => openCreate(event.currentTarget));
 $("#card-form").addEventListener("submit",event => {
   event.preventDefault(); const form = event.currentTarget;
   action(form.querySelector("[type=submit]"),form.querySelector(".feedback"),async () => {
     const fields = new FormData(form);
-    const created = await api("/api/v1/cards",json("POST",{title:fields.get("title"),goal:fields.get("goal")}));
+    const created = await api("/api/v1/cards",json("POST",{title:fields.get("title"),goal:fields.get("goal"),project_id:fields.get("project_id") || null}));
     state.loadVersion++; upsert(created); form.reset(); $("#person-filter").value=""; renderBoard();
     closeDialog($("#create-dialog")); await openCard(created.id,$("#new-card"));
   });
@@ -409,7 +412,10 @@ setInterval(async()=>{
 },8000);
 
 // The assistant renders readable, sanitized Markdown, never executable model HTML.
-$("#assistant-open").addEventListener("click",event=>showDialog($("#assistant-dialog"),event.currentTarget));
+$("#assistant-open").addEventListener("click",event=>{
+  if(!state.selectedPRD && !state.history.length && state.projects.some(p=>p.id===$("#project-filter").value))state.chatProjectId=$("#project-filter").value;
+  renderBriefSelection();showDialog($("#assistant-dialog"),event.currentTarget);
+});
 function markdown(target,text) {
   if (!window.marked || !window.DOMPurify) {target.textContent=text;return;}
   const html=marked.parse(text,{breaks:true,gfm:true});
@@ -436,14 +442,14 @@ function drawChat() {
 }
 function setChatBusy(busy) {
   state.chatBusy=busy;
-  for(const selector of ["#chat-form [type=submit]","#clear-chat","#preview-plan","#suggest-assignments","#chat-input","#brief-open","#brief-detach"])$(selector).disabled=busy;
+  for(const selector of ["#chat-form [type=submit]","#clear-chat","#preview-plan","#suggest-assignments","#chat-input","#brief-open","#brief-detach","#chat-project"])$(selector).disabled=busy;
   $("#proposal-panel").querySelectorAll("button").forEach(b=>{b.disabled=busy;});
 }
 async function chatAction(work) {
   if(state.chatBusy)return;
   setChatBusy(true);notify("#chat-message");
   try {await work();}catch(e){notify("#chat-message",e.message,true);}
-  finally{setChatBusy(false);}
+  finally{setChatBusy(false);renderBriefSelection();}
 }
 function cardName(id){return state.cards.find(c=>c.id===id)?.title || `Card #${id}`;}
 function renderProposal() {
@@ -452,6 +458,7 @@ function renderProposal() {
   const p=state.proposal;
   panel.append(node("p","eyebrow",p.kind==="cards" ? "1 · Review cards before creating" : "2 · Review assignments before applying"));
   if(p.data.prd)panel.append(node("p","proposal-source",`From ${p.data.prd.title} · revision ${p.data.prd.revision}`));
+  if(p.kind==="cards")panel.append(projectBadge(p.data.project_id));
   const list=node("div","proposal-items");
   if(p.kind==="cards") {
     for(const card of p.data.cards) {
@@ -514,7 +521,7 @@ async function requestAssistant(content,mode="discuss",targets=[]) {
       }));
     }else{
       result=await api("/api/v1/assistant/chat",json("POST",{
-        conversation_id:state.chatId,mode,target_card_ids:targets,messages,
+        conversation_id:state.chatId,mode,target_card_ids:targets,messages,project_id:state.chatProjectId,
         ...(state.selectedPRD && mode!=="assign" ? {prd_id:state.selectedPRD.id,prd_revision:state.selectedPRD.revision} : {}),
       }));
     }
@@ -525,7 +532,7 @@ async function requestAssistant(content,mode="discuss",targets=[]) {
   }catch(error){state.history=previous;drawChat();throw error;}
 }
 function assignmentTargets() {
-  const ids=state.lastCreated.length ? state.lastCreated : state.cards.filter(c=>!c.assignee && c.stage!=="Done").map(c=>c.id);
+  const ids=state.lastCreated.length ? state.lastCreated : state.cards.filter(c=>!c.assignee && c.stage!=="Done" && (!state.chatProjectId || c.project_id===state.chatProjectId)).map(c=>c.id);
   if(!ids.length)throw new Error("There are no target cards. Create cards first, or unassign a card you want to allocate.");
   if(ids.length>12)throw new Error("This preview supports up to 12 cards. Start with a smaller plan.");
   return ids;
@@ -565,6 +572,16 @@ $("#clear-chat").addEventListener("click",()=>chatAction(async()=>{
 $("#chat-form").addEventListener("submit",event=>{
   event.preventDefault();const input=$("#chat-input");const content=input.value.trim();if(!content)return;
   chatAction(async()=>{
+    const deleteMatch=content.trim().match(/^delete project\s+(.+?)\s*[.!]?$/i);
+    if(deleteMatch || /^delete this project[.!]?$/i.test(content.trim())){
+      await loadProjects();
+      const requested=deleteMatch?.[1].replace(/^["']|["']$/g,"").trim();
+      const project=requested ? state.projects.find(p=>p.name.toLocaleLowerCase()===requested.toLocaleLowerCase()) : state.projects.find(p=>p.id===state.chatProjectId);
+      if(!project)throw new Error("Use: delete project Exact project name. Or select a Planning project and type: delete this project. Nothing was deleted.");
+      if(state.proposal)await cancelProposal();
+      state.history.push({role:"user",content},{role:"assistant",content:"Review the deletion preview and type the exact project name before confirming. Nothing has been deleted."});drawChat();
+      await reviewProjectDeletion(project.id,$("#assistant-dialog"));input.value="";return;
+    }
     const normalized=content.toLowerCase().replace(/[.!?]+$/g,"").trim();
     if(state.proposal && ["yes","confirm","approve","go ahead","yes do it","yes assign them"].includes(normalized)) {
       await confirmProposal();input.value="";return;
@@ -580,10 +597,10 @@ async function enterWorkspace(user) {
   $("#account-open").replaceChildren(node("span","avatar",initials(user.name)),node("span","account-name",user.name));
   $("#person-form").hidden=!user.is_admin;
   $("#account-description").textContent=`${user.name} · @${user.username}${user.is_admin ? " · Workspace owner" : ""}`;
-  await Promise.all([loadBoard(),loadPeople()]);
+  await loadProjects();await Promise.all([loadBoard(),loadPeople()]);
 }
 function expireSession() {
-  state.selectedPRD=null;state.briefs=[];renderBriefSelection();
+  state.selectedPRD=null;state.briefs=[];state.projects=[];state.chatProjectId=null;renderProjectOptions();renderBriefSelection();
   state.authEpoch++;state.user=null;state.cards=[];state.people=[];state.history=[];state.proposal=null;
   state.threadId=null;state.threadVersion++;state.loadVersion++;state.chatId=crypto.randomUUID();
   state.lastCreated=[];$("#suggest-assignments").hidden=true;drawChat();renderProposal();
@@ -629,6 +646,8 @@ function renderBriefSelection(){
   $("#selected-brief").textContent=state.selectedPRD ? `${state.selectedPRD.title} · revision ${state.selectedPRD.revision}` : "No brief selected · chat works without one";
   $("#brief-open").textContent=state.selectedPRD ? "Change brief" : "Add brief";
   $("#brief-detach").hidden=!state.selectedPRD;
+  $("#chat-project").value=state.selectedPRD?.project_id || state.chatProjectId || "";
+  $("#chat-project").disabled=!!state.selectedPRD || state.chatBusy;
 }
 function briefCount(){
   $("#brief-counter").textContent=`${$("#brief-content").value.length.toLocaleString()} / 18,000 characters · minimum 80`;
@@ -636,9 +655,10 @@ function briefCount(){
 function fillBrief(document=null){
   state.briefLoadVersion=(state.briefLoadVersion || 0)+1;
   state.briefEdit=document;state.briefSource=document?.source_name || "Pasted brief";state.briefDirty=false;
+  $("#brief-project").value=document?.project_id || (document ? "" : state.chatProjectId || "");
   $("#brief-title").value=document?.title || "";$("#brief-content").value=document?.content || "";$("#brief-file").value="";
   const editable=!document || document.owner_id===state.user.id || state.user.is_admin;
-  $("#brief-title").readOnly=$("#brief-content").readOnly=!editable;$("#brief-file").disabled=!editable;$(".file-button").hidden=!editable;
+  $("#brief-project").disabled=!editable;$("#brief-title").readOnly=$("#brief-content").readOnly=!editable;$("#brief-file").disabled=!editable;$(".file-button").hidden=!editable;
   $("#brief-save").textContent=editable ? "Save and use brief" : "Use this brief";briefCount();notify("#brief-message");
 }
 async function openBrief(opener){
@@ -674,7 +694,7 @@ async function openBrief(opener){
   }finally{
     if(version===state.briefOpenVersion){
       controls.forEach(el=>el.disabled=false);
-      $("#brief-file").disabled=$("#brief-title").readOnly;
+      $("#brief-file").disabled=$("#brief-title").readOnly;$("#brief-project").disabled=$("#brief-title").readOnly;
     }
   }
 }
@@ -690,7 +710,8 @@ $("#brief-dialog").addEventListener("close",()=>{
 async function resetBriefConversation(document){
   if(state.proposal)await cancelProposal();
   state.history=[];state.chatId=crypto.randomUUID();state.proposal=null;state.lastCreated=[];$("#suggest-assignments").hidden=true;$("#chat-input").value="";
-  state.selectedPRD=document ? {id:document.id,title:document.title,revision:document.revision} : null;
+  state.selectedPRD=document ? {id:document.id,title:document.title,revision:document.revision,project_id:document.project_id || null} : null;
+  if(document)state.chatProjectId=document.project_id || null;
   drawChat();renderProposal();renderBriefSelection();notify("#chat-message",document ? "Brief attached. Discuss it here, or choose Preview cards. No cards have been created." : "Brief removed. Your saved briefs and board are unchanged.");
 }
 $("#brief-open").addEventListener("click",event=>{
@@ -708,22 +729,48 @@ $("#brief-new").addEventListener("click",()=>{
   if(state.briefDirty && !confirm("Discard unsaved brief edits?"))return;
   $("#brief-library").value="";fillBrief();$("#brief-title").focus();
 });
-for(const id of ["#brief-title","#brief-content"])$(id).addEventListener("input",()=>{state.briefDirty=true;briefCount();});
+for(const id of ["#brief-title","#brief-content","#brief-project"])$(id).addEventListener("input",()=>{state.briefDirty=true;briefCount();});
 $("#brief-file").addEventListener("change",async event=>{
-  const file=event.target.files[0];if(!file)return;const version=state.briefLoadVersion;
+  const input=event.currentTarget, file=input.files[0];
+  if(!file || state.briefBusy)return;
+  const version=state.briefLoadVersion, epoch=state.authEpoch;
+  const controls=[...$("#brief-dialog").querySelectorAll("input,textarea,select,button")];
   try{
-    if(!/\.(txt|md)$/i.test(file.name))throw new Error("Use a .txt or .md file. PDF and Word are not supported yet.");
-    if(file.size>65536)throw new Error("Use a text file smaller than 64 KB.");
+    if(!/\.(txt|md|pdf|docx)$/i.test(file.name))throw new Error("Use .txt, .md, .pdf, or .docx. Old .doc files are not supported.");
+    const binary=/\.(pdf|docx)$/i.test(file.name);
+    if(file.size>(binary ? 2*1024*1024 : 65536))throw new Error(binary ? "Choose a PDF or Word document no larger than 2 MB." : "Use a text file smaller than 64 KB.");
+    if(!file.size)throw new Error("This file is empty. Choose another document.");
+    if(file.name.length>150)throw new Error("Shorten the filename to 150 characters or fewer.");
     if(state.briefDirty && !confirm("Replace the current requirements with this file?"))return;
-    const text=new TextDecoder("utf-8",{fatal:true}).decode(await file.arrayBuffer());
-    if(version!==state.briefLoadVersion)return;
-    if(text.includes("\0"))throw new Error("This does not look like a text document.");
-    if(text.trim().length<80 || text.length>18000)throw new Error("The brief must contain 80–18,000 characters.");
+    state.briefBusy=true;controls.forEach(el=>el.disabled=true);
+    notify("#brief-message",binary ? "Extracting text on your Python server… Review it before saving. This can take a few seconds." : "Reading text…");
+    const bytes=new Uint8Array(await file.arrayBuffer());
+    let text, warnings=[];
+    if(binary){
+      let encoded="";
+      for(let i=0;i<bytes.length;i+=32768)encoded+=String.fromCharCode(...bytes.subarray(i,i+32768));
+      const result=await api("/api/v1/documents/extract",json("POST",{filename:file.name,content_base64:btoa(encoded)}));
+      text=result.text;warnings=result.warnings || [];
+    }else{
+      try{text=new TextDecoder("utf-8",{fatal:true}).decode(bytes);}catch{throw new Error("This text file is not UTF-8. Save it with UTF-8 encoding and try again.");}
+    }
+    if(epoch!==state.authEpoch || version!==state.briefLoadVersion || !$("#brief-dialog").open)return;
+    if(typeof text!=="string" || !text.trim() || text.includes("\0"))throw new Error("No readable text was found. Your current draft has not been replaced.");
+    if(text.length>18000)throw new Error("The extracted text exceeds 18,000 characters. Import a smaller document; nothing was truncated.");
     $("#brief-content").value=text;
-    if(!$("#brief-title").value)$("#brief-title").value=file.name.replace(/\.(txt|md)$/i,"").slice(0,150);
-    state.briefSource=file.name.slice(0,150);state.briefDirty=true;briefCount();notify("#brief-message","Text loaded locally. Save and use it to attach it to this conversation.");
-  }catch(error){notify("#brief-message",error.message,true);}
-  finally{event.target.value="";}
+    if(!$("#brief-title").value)$("#brief-title").value=file.name.replace(/\.(txt|md|pdf|docx)$/i,"").slice(0,150);
+    state.briefSource=file.name;state.briefDirty=true;briefCount();
+    const notes=[binary ? "Text extracted. Review and edit it, then Save and use brief. Nothing has been saved or sent to AI yet." : "Text loaded locally. Review it, then Save and use brief.",...warnings];
+    if(text.trim().length<80)notes.push("Add more requirements before saving (minimum 80 characters).");
+    notify("#brief-message",notes.join("\n\n"));
+  }catch(error){
+    if(epoch===state.authEpoch && version===state.briefLoadVersion)notify("#brief-message",error.message,true);
+  }finally{
+    state.briefBusy=false;
+    controls.forEach(el=>el.disabled=false);
+    $("#brief-file").disabled=$("#brief-title").readOnly;$("#brief-project").disabled=$("#brief-title").readOnly;
+    input.value="";
+  }
 });
 $("#brief-form").addEventListener("submit",event=>{
   event.preventDefault();if(state.briefBusy)return;
@@ -738,7 +785,7 @@ $("#brief-form").addEventListener("submit",event=>{
       if(!editable)document=await api(`/api/v1/prds/${previous.id}`);
       else if(previous && !state.briefDirty)document=await api(`/api/v1/prds/${previous.id}`);
       else{
-        const body={title:$("#brief-title").value.trim(),content:$("#brief-content").value.trim(),source_name:state.briefSource};
+        const body={title:$("#brief-title").value.trim(),content:$("#brief-content").value.trim(),source_name:state.briefSource,project_id:$("#brief-project").value || null};
         if(previous)body.expected_revision=previous.revision;
         document=await api(previous ? `/api/v1/prds/${previous.id}` : "/api/v1/prds",json(previous ? "PUT" : "POST",body));
         // Keep the saved identity even if clearing an old preview later fails.
@@ -768,4 +815,104 @@ async function start() {
   try{const user=await api("/api/v1/auth/me");await enterWorkspace(user);}
   catch(error){configureAuth("login");if(!error.message.startsWith("HTTP 401"))notify("#auth-error",error.message,true);}
 }
+function projectBadge(id,interactive=false){
+  const p=state.projects.find(p=>p.id===id);
+  return interactive ? button(p?.name || "Ungrouped",`project-label project-${p?.color || "none"}`) : node("span",`project-label project-${p?.color || "none"}`,p?.name || "Ungrouped");
+}
+function renderProjectOptions(){
+  for(const id of ["#project-filter","#create-project","#card-project","#chat-project","#brief-project"]){
+    const select=$(id),previous=select.value;
+    select.replaceChildren(new Option(id==="#project-filter" ? "All projects" : "Ungrouped",""));
+    if(id==="#project-filter")select.add(new Option("Ungrouped","__none__"));
+    for(const project of state.projects)select.add(new Option(project.name,project.id));
+    select.value=[...select.options].some(o=>o.value===previous) ? previous : "";
+  }
+  if(state.chatProjectId && !state.projects.some(p=>p.id===state.chatProjectId))state.chatProjectId=null;
+  $("#chat-project").value=state.selectedPRD?.project_id || state.chatProjectId || "";
+}
+async function loadProjects(){
+  state.projects=await api("/api/v1/projects");renderProjectOptions();renderProjects();
+}
+function resetProjectForm(){
+  state.projectEdit=null;$("#project-form").reset();$("#project-form-heading").textContent="Add a project";$("#cancel-project-edit").hidden=true;
+}
+function renderProjects(){
+  const list=$("#projects-list");list.replaceChildren();
+  if(!state.projects.length)list.append(node("p","muted","No projects yet. Existing cards stay Ungrouped until you label them."));
+  for(const project of state.projects){
+    const row=node("div","project-row"),copy=node("div","project-row-copy"),actions=node("div","project-row-actions");
+    copy.append(projectBadge(project.id),node("p","",`${project.card_count} cards · ${project.brief_count} briefs`));
+    const view=button("View");view.addEventListener("click",()=>{$("#project-filter").value=project.id;renderBoard();closeDialog($("#projects-dialog"));});actions.append(view);
+    if(state.user && (state.user.is_admin || project.owner_id===state.user.id)){
+      const edit=button("Edit");edit.addEventListener("click",()=>{state.projectEdit=project.id;$("#project-name").value=project.name;$("#project-color").value=project.color;$("#project-form-heading").textContent="Edit project";$("#cancel-project-edit").hidden=false;$("#project-name").focus();});
+      const remove=button("Delete","button-danger");remove.setAttribute("aria-label",`Delete project ${project.name}`);remove.addEventListener("click",()=>action(remove,"#projects-message",()=>reviewProjectDeletion(project.id,$("#projects-dialog"))));actions.append(edit,remove);
+    }
+    row.append(copy,actions);list.append(row);
+  }
+}
+$("#projects-open").addEventListener("click",event=>action(event.currentTarget,"#message",async()=>{await loadProjects();resetProjectForm();notify("#projects-message");showDialog($("#projects-dialog"),$("#projects-open"));}));
+$("#cancel-project-edit").addEventListener("click",resetProjectForm);
+$("#project-form").addEventListener("submit",event=>{
+  event.preventDefault();action($("#project-form [type=submit]"),"#projects-message",async()=>{
+    const saved=await api(state.projectEdit ? `/api/v1/projects/${state.projectEdit}` : "/api/v1/projects",json(state.projectEdit ? "PUT" : "POST",{name:$("#project-name").value.trim(),color:$("#project-color").value}));
+    resetProjectForm();await loadProjects();$("#project-filter").value=saved.id;renderBoard();notify("#projects-message","Project saved. Label existing cards in their details, or select it when creating new cards and briefs.");
+  });
+});
+$("#project-filter").addEventListener("change",renderBoard);
+$("#chat-project").addEventListener("change",event=>chatAction(async()=>{
+  if(state.proposal)await cancelProposal();
+  state.chatProjectId=event.target.value || null;state.lastCreated=[];
+  state.history=[];state.chatId=crypto.randomUUID();drawChat();notify("#chat-message","Planning project selected. New previews use this project; existing cards are unchanged.");
+}));
+$("#card-project").addEventListener("change",event=>{
+  const select=event.currentTarget,id=state.selected,value=select.value || null;
+  action(select,"#detail-message",async()=>{
+    try{const updated=await api(`/api/v1/cards/${id}`,json("PATCH",{project_id:value}));upsert(updated);notify("#detail-message","Project label saved.");}
+    finally{if(state.selected===id)select.value=state.cards.find(c=>c.id===id)?.project_id || "";}
+  });
+});
+$("#delete-card").addEventListener("click",event=>action(event.currentTarget,"#detail-message",async()=>{
+  const id=state.selected,card=state.cards.find(c=>c.id===id);
+  if(!card)return;
+  if($("#details .inline-editor"))throw new Error("Save or cancel your edit before deleting this card.");
+  if(!confirm(`Permanently delete #${id} ${card.title} and all its comments from the saved workspace? This cannot be undone in the app.`))return;
+  await api(`/api/v1/cards/${id}`,{method:"DELETE"});
+  state.cards=state.cards.filter(c=>c.id!==id);state.lastCreated=state.lastCreated.filter(n=>n!==id);
+  if(state.proposal){state.proposal=null;renderProposal();}
+  closeDialog($("#details"));await loadProjects();renderBoard();notify("#message",`Card #${id} and its comments were deleted from the saved workspace.`);
+}));
+async function reviewProjectDeletion(id,returnDialog){
+  if($("#board .inline-editor"))throw new Error("Save or cancel your field edit before reviewing a deletion.");
+  const preview=await api(`/api/v1/projects/${id}/deletion-preview`,json("POST",{}));
+  state.deletion=preview;const dialog=$("#project-delete-dialog");dialog._returnDialog=returnDialog?.id;
+  if(returnDialog?.open)returnDialog.close();
+  $("#project-delete-summary").textContent=`${preview.project.name}: ${preview.cards.length} cards, ${preview.comment_count} comments and ${preview.briefs.length} saved briefs (including their revisions). Nothing is deleted until you confirm below.`;
+  const list=$("#project-delete-items");list.replaceChildren();
+  if(!preview.cards.length && !preview.briefs.length)list.append(node("p","muted","This project has no cards or briefs. Only its label will be removed."));
+  for(const c of preview.cards)list.append(node("p","",`Card #${c.id} · ${c.title}`));
+  for(const d of preview.briefs)list.append(node("p","",`Brief · ${d.title}`));
+  $("#project-delete-form").reset();notify("#project-delete-message");showDialog(dialog,$("#projects-open"));
+}
+$("#project-delete-dialog").addEventListener("close",()=>{
+  const dialog=$("#project-delete-dialog"),target=dialog._returnDialog;dialog._returnDialog=null;
+  const abandoned=state.deletion;state.deletion=null;
+  if(abandoned && state.user)api(`/api/v1/projects/deletions/${abandoned.id}/cancel`,json("POST",{})).catch(()=>{});
+  if(state.user && !$("#workspace").hidden && target){showDialog($("#"+target),$("#projects-open"));}
+});
+$("#project-delete-form").addEventListener("submit",event=>{
+  event.preventDefault();const preview=state.deletion;if(!preview || state.deleting)return;
+  action($("#project-delete-confirm"),"#project-delete-message",async()=>{
+    const name=$("#project-delete-name").value;
+    if(name!==preview.project.name)throw new Error("Type the project name exactly as shown above.");
+    state.deleting=true;$("#project-delete-name").disabled=true;
+    let result;
+    try{result=await api(`/api/v1/projects/deletions/${preview.id}/confirm`,json("POST",{approve:true,confirm_name:name}));}
+    finally{state.deleting=false;$("#project-delete-name").disabled=false;}
+    state.deletion=null;state.proposal=null;state.lastCreated=[];
+    if(state.selectedPRD && result.deleted_brief_ids.includes(state.selectedPRD.id))state.selectedPRD=null;
+    await loadProjects();await loadBoard();renderBriefSelection();renderProposal();
+    state.history=[];state.chatId=crypto.randomUUID();drawChat();
+    closeDialog($("#project-delete-dialog"));notify("#message",result.message);notify("#chat-message",result.message);
+  });
+});
 start().catch(error=>{configureAuth("login");notify("#auth-error",error.message,true);});

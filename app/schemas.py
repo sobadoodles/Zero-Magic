@@ -17,6 +17,7 @@ NonBlankText = Annotated[
 class CardCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    project_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
     title: NonBlankText
     goal: NonBlankText
     acceptance_criteria: list[NonBlankText] = Field(default_factory=list)
@@ -26,6 +27,7 @@ class CardCreate(BaseModel):
 class CardUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    project_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
     title: NonBlankText | None = None
     goal: NonBlankText | None = None
     acceptance_criteria: list[NonBlankText] | None = None
@@ -36,7 +38,7 @@ class CardUpdate(BaseModel):
     def reject_null_values(cls, data):
         if isinstance(data, dict):
             for field, value in data.items():
-                if value is None:
+                if value is None and field != "project_id":
                     raise ValueError(f"{field} cannot be null")
 
         return data

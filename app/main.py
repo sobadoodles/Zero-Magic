@@ -12,6 +12,8 @@ from app.team import router as team_router
 from app.cards import router as cards_router
 from app.assistant import router as assistant_router
 from app.prds import router as prds_router
+from app.documents import router as documents_router
+from app.projects import router as projects_router
 
 app = FastAPI(title="Zero Magic API")
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=[
@@ -43,6 +45,8 @@ app.include_router(team_router)
 app.include_router(cards_router)
 app.include_router(assistant_router)
 app.include_router(prds_router)
+app.include_router(documents_router)
+app.include_router(projects_router)
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 

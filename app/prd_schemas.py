@@ -12,6 +12,7 @@ DraftKey = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_-]{0,31}$")]
 
 class PRDInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    project_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
     title: NonBlankText = Field(max_length=150)
     content: Annotated[str, StringConstraints(strip_whitespace=True, min_length=80, max_length=18000)]
     source_name: str = Field(default="Pasted brief", max_length=150)

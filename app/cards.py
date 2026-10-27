@@ -25,6 +25,8 @@ ALLOWED_TRANSITIONS = {
 @router.post("", status_code=status.HTTP_201_CREATED)
 @storage.synchronized
 def create_card(payload: CardCreate):
+    from app.projects import validate_project
+    validate_project(payload.project_id)
     card_id = next(storage.card_ids)
 
     card = {
@@ -71,6 +73,9 @@ def update_card(card_id: int, payload: CardUpdate):
         raise HTTPException(status_code=404, detail="Card not found")
 
     updates = payload.model_dump(exclude_unset=True)
+    if "project_id" in updates:
+        from app.projects import validate_project
+        validate_project(updates["project_id"])
     card.update(updates)
 
     return card
@@ -78,55 +83,37 @@ def update_card(card_id: int, payload: CardUpdate):
 
 @router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
 @storage.synchronized
+@router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
+@storage.synchronized
 def delete_card(card_id: int):
-    dependents = [c["id"] for c in storage.cards.values() if card_id in c.get("depends_on",[])]
-    if dependents:
-        raise HTTPException(409, "Other cards depend on this card: " + ", ".join(map(str,dependents)))
-    card = storage.cards.pop(card_id, None)
+    if card_id not in storage.cards:
+        raise HTTPException(status_code=404, detail="Card not found")
 
-    if card is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Card not found",
-        )
+    # Remove this card from other cards' prerequisite lists.
+    # Keep the other cards and their remaining prerequisites.
+    for other_card in storage.cards.values():
+        dependencies = other_card.get("depends_on", [])
+        if card_id in dependencies:
+            other_card["depends_on"] = [
+                dependency_id
+                for dependency_id in dependencies
+                if dependency_id != card_id
+            ]
 
-    comment_ids_to_delete = [
+    del storage.cards[card_id]
+
+    # Delete this card's discussion too.
+    comment_ids = [
         comment_id
         for comment_id, comment in storage.comments.items()
         if comment["card_id"] == card_id
     ]
-
-    for comment_id in comment_ids_to_delete:
+    for comment_id in comment_ids:
         del storage.comments[comment_id]
-@router.patch("/{card_id}/stage")
-@storage.synchronized
-def change_card_stage(card_id: int, payload: CardStageUpdate):
-    card = storage.cards.get(card_id)
 
-    if card is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Card not found",
-        )
-
-    current_stage = card["stage"]
-    requested_stage = payload.stage.value
-
-    if requested_stage not in ALLOWED_TRANSITIONS[current_stage]:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Cannot move card from {current_stage} "
-                f"to {requested_stage}"
-            ),
-        )
-
-    if requested_stage == "Building":
-        blocked = [ident for ident in card.get("depends_on",[]) if storage.cards.get(ident,{}).get("stage") != "Done"]
-        if blocked:
-            raise HTTPException(409, "Finish prerequisite cards first: " + ", ".join(f"#{i}" for i in blocked))
-    card["stage"] = requested_stage
-    return card
+    # Clear cached operations referring to the deleted card.
+    from app.projects import purge_proposals
+    purge_proposals({card_id}, set(), None)
 
 
 @router.post(
@@ -175,3 +162,39 @@ def list_comments(card_id: int):
         for comment in storage.comments.values()
         if comment["card_id"] == card_id
     ]
+
+@router.patch("/{card_id}/stage")
+@storage.synchronized
+def change_card_stage(card_id: int, payload: CardStageUpdate):
+    card = storage.cards.get(card_id)
+
+    if card is None:
+        raise HTTPException(status_code=404, detail="Card not found")
+
+    current_stage = card["stage"]
+    requested_stage = payload.stage.value
+
+    if requested_stage not in ALLOWED_TRANSITIONS[current_stage]:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Cannot move card from {current_stage} "
+                f"to {requested_stage}"
+            ),
+        )
+
+    if requested_stage == "Building":
+        blocked = [
+            dependency_id
+            for dependency_id in card.get("depends_on", [])
+            if storage.cards.get(dependency_id, {}).get("stage") != "Done"
+        ]
+        if blocked:
+            raise HTTPException(
+                status_code=409,
+                detail="Finish prerequisite cards first: "
+                + ", ".join(f"#{dependency_id}" for dependency_id in blocked),
+            )
+
+    card["stage"] = requested_stage
+    return card

@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Zero Magic — Board</title>
-  <link rel="stylesheet" href="/static/styles.css?v=brief-open-fix-1">
+  <link rel="stylesheet" href="/static/styles.css?v=projects-1">
   <script defer src="/static/vendor/marked.umd.js"></script>
   <script defer src="/static/vendor/purify.min.js"></script>
-  <script defer src="/static/app.js?v=brief-open-fix-1"></script>
+  <script defer src="/static/app.js?v=projects-1"></script>
 </head>
 <body>
 <section id="auth-screen" class="auth-screen" aria-labelledby="auth-heading" hidden>
@@ -20,10 +20,10 @@
 <div class="workspace" id="workspace" hidden>
   <header class="page-header">
     <div><p class="eyebrow">Zero Magic · Your workspace</p><h1>Make room for <em>what’s next.</em></h1></div>
-    <div class="header-actions"><button id="account-open" class="account-button" aria-label="Your account"></button><button id="team-open" class="button-quiet">People <span id="people-count">0</span></button><button id="assistant-open" class="button-quiet">✧ Plan with AI</button></div>
+    <div class="header-actions"><button id="account-open" class="account-button" aria-label="Your account"></button><button id="projects-open" class="button-quiet">Projects</button><button id="team-open" class="button-quiet">People <span id="people-count">0</span></button><button id="assistant-open" class="button-quiet">✧ Plan with AI</button></div>
   </header>
   <main>
-    <div class="board-heading"><div><h2>The board.</h2><p class="muted">Click a title to edit. Open a card for the details.</p></div><div class="board-actions"><label class="sr-only" for="person-filter">Filter by person</label><select id="person-filter"><option value="">Everyone</option></select><button id="refresh" class="button-quiet" aria-label="Refresh board">↻ Refresh</button><button id="new-card" class="button-primary">+ Add card</button></div></div>
+    <div class="board-heading"><div><h2>The board.</h2><p class="muted">Click a title to edit. Open a card for the details.</p></div><div class="board-actions"><label class="sr-only" for="project-filter">Filter by project</label><select id="project-filter"><option value="">All projects</option><option value="__none__">Ungrouped</option></select><label class="sr-only" for="person-filter">Filter by person</label><select id="person-filter"><option value="">Everyone</option></select><button id="refresh" class="button-quiet" aria-label="Refresh board">↻ Refresh</button><button id="new-card" class="button-primary">+ Add card</button></div></div>
     <p id="message" class="feedback" role="status" aria-live="polite"></p>
     <div class="board-shell"><div class="board-toolbar"><span class="live-dot" aria-hidden="true"></span><span>Development funnel</span><span id="board-total">Loading…</span></div><div class="board-scroll" role="region" tabindex="0" aria-label="Task board. Scroll horizontally for all stages."><div id="board" class="board-columns"></div></div></div>
     <p class="workspace-note">Saved locally in SQLite · Cards, people, and discussions stay after a restart.</p>
@@ -32,7 +32,7 @@
 
 <dialog id="create-dialog" aria-labelledby="create-heading">
   <header class="dialog-header"><div><p class="eyebrow">Start with intent</p><h2 id="create-heading">A new card.</h2></div><button class="icon-button" data-close aria-label="Close new card">×</button></header>
-  <form id="card-form"><label for="card-title">Title</label><input id="card-title" name="title" placeholder="What needs to be built?" required maxlength="500"><label for="card-goal">Goal</label><textarea id="card-goal" name="goal" rows="3" placeholder="What should this achieve?" required></textarea><p class="muted small">Starts in Spec. Add details and an assignee after creating it.</p><p class="feedback" role="status"></p><div class="form-actions"><button type="button" data-close>Cancel</button><button class="button-primary" type="submit">Create card</button></div></form>
+  <form id="card-form"><label for="create-project">Project</label><select id="create-project" name="project_id"><option value="">Ungrouped</option></select><label for="card-title">Title</label><input id="card-title" name="title" placeholder="What needs to be built?" required maxlength="500"><label for="card-goal">Goal</label><textarea id="card-goal" name="goal" rows="3" placeholder="What should this achieve?" required></textarea><p class="muted small">Starts in Spec. Add details and an assignee after creating it.</p><p class="feedback" role="status"></p><div class="form-actions"><button type="button" data-close>Cancel</button><button class="button-primary" type="submit">Create card</button></div></form>
 </dialog>
 
 <dialog id="details" aria-labelledby="detail-heading">
@@ -40,8 +40,8 @@
   <p id="detail-message" class="feedback" role="status" aria-live="polite"></p>
   <div id="card-fields"></div>
   <div class="properties"><div><label for="stage-select">Stage</label><select id="stage-select"></select></div><div><label for="assignee-select">Assigned to</label><select id="assignee-select"></select></div></div>
-  <p id="stage-hint" class="muted small"></p>
-  <div class="discussion-link"><button id="open-discussion" type="button">Open discussion ↗</button><p class="muted small">Open the conversation to read replies or add a comment.</p></div>
+  <label for="card-project">Project label</label><select id="card-project"><option value="">Ungrouped</option></select><p id="stage-hint" class="muted small"></p>
+  <div class="card-delete-actions"><button id="delete-card" class="button-danger" type="button">Delete card</button><span class="muted small">Permanently removes this card and its comments from the saved workspace.</span></div><div class="discussion-link"><button id="open-discussion" type="button">Open discussion ↗</button><p class="muted small">Open the conversation to read replies or add a comment.</p></div>
 </dialog>
 
 <dialog id="team-dialog" aria-labelledby="team-heading">
@@ -54,7 +54,7 @@
   <header class="dialog-header"><div><p class="eyebrow">Think it through</p><h2 id="assistant-heading">Your planning partner.</h2></div><button class="icon-button" data-close aria-label="Close assistant">×</button></header>
   <p class="assistant-notice">Discuss first. Preview cards, approve creation, then separately approve assignments.</p>
   <div class="brief-bar"><div><span class="field-label">Project brief</span><span id="selected-brief">No brief selected · chat works without one</span></div><div class="brief-actions"><button id="brief-open" type="button">Add brief</button><button id="brief-detach" type="button" hidden aria-label="Remove brief from this conversation">×</button></div></div>
-  <div id="chat-history" class="chat-history" role="log" aria-live="polite" aria-label="Planning conversation"><div class="chat-welcome"><span class="sparkle" aria-hidden="true">✧</span><h3>What are you thinking of building?</h3><p>Describe an idea, a change of direction, or something that feels too big. We’ll break it down together.</p></div></div>
+  <label for="chat-project">Planning project</label><select id="chat-project"><option value="">Ungrouped</option></select><p class="muted small">New AI cards inherit this project. A selected brief sets its own project. To request deletion, type: delete project Exact name</p><div id="chat-history" class="chat-history" role="log" aria-live="polite" aria-label="Planning conversation"><div class="chat-welcome"><span class="sparkle" aria-hidden="true">✧</span><h3>What are you thinking of building?</h3><p>Describe an idea, a change of direction, or something that feels too big. We’ll break it down together.</p></div></div>
   <section id="proposal-panel" class="proposal-panel" hidden aria-label="Review proposed changes"></section>
   <p id="chat-message" class="feedback" role="status"></p><form id="chat-form"><label for="chat-input" class="sr-only">Your message</label><textarea id="chat-input" rows="3" maxlength="6000" required placeholder="I’d like to add…"></textarea><div class="chat-actions"><div class="assistant-tools"><button type="button" id="preview-plan">Preview cards</button><button type="button" id="suggest-assignments" hidden>Suggest assignments</button><button type="button" id="clear-chat" class="button-quiet">New conversation</button></div><button class="button-primary" type="submit">Send ↗</button></div></form><p class="muted small">Approvals apply only the displayed preview. Conversation stays in this tab until reload. Workspace context is sent to Groq.</p>
 </dialog>
@@ -75,12 +75,23 @@
 </dialog>
 <dialog id="brief-dialog" class="brief-dialog" aria-labelledby="brief-heading">
   <header class="dialog-header"><div><p class="eyebrow">Start with the bigger picture</p><h2 id="brief-heading">Your project brief.</h2></div><button class="icon-button" data-close aria-label="Close project brief">×</button></header>
-  <p class="muted small">A PRD describes who this is for, what it should do, and what’s out of scope. Paste yours or load a UTF-8 .txt / .md file. PDF and Word support comes later.</p>
+  <p class="muted small">A PRD describes who this is for, what it should do, and what’s out of scope. Paste requirements or load .txt, .md, PDF, or Word (.docx). PDF/Word files are sent to your Python server for text extraction only. Review the text before saving. Scanned documents need OCR.</p>
   <div class="brief-library"><div><label for="brief-library">Saved briefs</label><select id="brief-library"><option value="">New brief</option></select></div><button id="brief-new" type="button">New brief</button></div>
-  <form id="brief-form"><label for="brief-title">Title</label><input id="brief-title" required maxlength="150" placeholder="e.g. Team notification preferences"><div class="brief-content-label"><label for="brief-content">Requirements</label><label class="file-button" for="brief-file">Load .txt / .md</label><input id="brief-file" class="sr-only" type="file" accept=".txt,.md,text/plain,text/markdown"></div><textarea id="brief-content" required minlength="80" maxlength="18000" rows="8" placeholder="Who is this for?
+  <form id="brief-form"><label for="brief-project">Project</label><select id="brief-project"><option value="">Ungrouped</option></select><p class="muted small">New cards generated from this brief inherit its project. Existing cards keep their current labels.</p><label for="brief-title">Title</label><input id="brief-title" required maxlength="150" placeholder="e.g. Team notification preferences"><div class="brief-content-label"><label for="brief-content">Requirements</label><label class="file-button" for="brief-file">Load file</label><input id="brief-file" class="sr-only" type="file" accept=".txt,.md,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></div><textarea id="brief-content" required minlength="80" maxlength="18000" rows="8" placeholder="Who is this for?
 What must they be able to do?
 How will we know it works?
-What should we leave out?"></textarea><p id="brief-counter" class="muted small">0 / 18,000 characters · minimum 80</p><p id="brief-message" class="feedback" role="status"></p><p class="muted small">Saved to this workspace and visible to signed-in teammates. Selected brief text is sent to Groq when you discuss or generate cards. Don’t include secrets.</p><div class="form-actions"><button type="button" data-close>Cancel</button><button id="brief-save" class="button-primary" type="submit">Save and use brief</button></div></form>
+What should we leave out?"></textarea><p id="brief-counter" class="muted small">0 / 18,000 characters · minimum 80</p><p id="brief-message" class="feedback" role="status"></p><p class="muted small">PDF/.docx: up to 2 MB. Text files: up to 64 KB. Extracted text: up to 18,000 characters. Originals are not stored by the app. Saved briefs are visible to signed-in teammates. Selected brief text is sent to Groq when you discuss or generate cards. Don’t include secrets.</p><div class="form-actions"><button type="button" data-close>Cancel</button><button id="brief-save" class="button-primary" type="submit">Save and use brief</button></div></form>
+</dialog>
+<dialog id="projects-dialog" aria-labelledby="projects-heading">
+<header class="dialog-header"><div><p class="eyebrow">Keep the bigger picture clear</p><h2 id="projects-heading">Your projects.</h2></div><button data-close class="icon-button" aria-label="Close projects">×</button></header>
+<p class="muted small">Give each project a name and color. Labels and board filters keep its tasks together.</p>
+<p id="projects-message" class="feedback" role="status"></p><div id="projects-list"></div>
+<form id="project-form"><h3 id="project-form-heading">Add a project</h3><label for="project-name">Name</label><input id="project-name" maxlength="80" required placeholder="e.g. Website launch"><label for="project-color">Color</label><select id="project-color"><option value="indigo">Indigo</option><option value="blue">Blue</option><option value="teal">Teal</option><option value="green">Green</option><option value="amber">Amber</option><option value="orange">Orange</option><option value="pink">Pink</option><option value="purple">Purple</option></select><div class="form-actions"><button id="cancel-project-edit" type="button" hidden>Cancel edit</button><button class="button-primary" type="submit">Save project</button></div></form>
+</dialog>
+<dialog id="project-delete-dialog" aria-labelledby="project-delete-heading">
+<header class="dialog-header"><div><p class="eyebrow">Review before deleting</p><h2 id="project-delete-heading">Delete project?</h2></div><button data-close class="icon-button" aria-label="Cancel project deletion">×</button></header>
+<p id="project-delete-summary"></p><div id="project-delete-items" class="deletion-items"></div><p class="feedback error">This permanently removes the project, its cards, their comments, and its saved briefs/revisions from the active database. Other projects and team accounts stay. There is no in-app undo; private backups may still contain older data.</p>
+<p id="project-delete-message" class="feedback" role="status"></p><form id="project-delete-form"><label for="project-delete-name">Type the exact project name to confirm</label><input id="project-delete-name" required autocomplete="off"><div class="form-actions"><button data-close type="button">Keep project</button><button type="submit" id="project-delete-confirm" class="button-danger">Permanently delete project</button></div></form>
 </dialog>
 </body>
 </html>
