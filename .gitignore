@@ -11,3 +11,5 @@ foreach ($rule in $rules) {
     }
 }
 data/
+
+/backups/

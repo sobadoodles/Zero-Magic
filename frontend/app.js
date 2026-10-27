@@ -2,7 +2,7 @@
 const $ = selector => document.querySelector(selector);
 const STAGES = ["Spec", "Ready", "Building", "Checks", "Validation", "Done"];
 const MOVES = {Spec:["Ready"], Ready:["Building"], Building:["Checks"], Checks:["Validation","Building"], Validation:["Done","Building"], Done:[]};
-const state = {cards:[], people:[], peopleReady:false, selected:null, opener:null, detailsVersion:0, loadVersion:0, history:[], chatBusy:false, personEdit:null, chatId:crypto.randomUUID(), proposal:null, lastCreated:[], threadId:null, threadVersion:0, threadBusy:false, authEpoch:0, user:null, authMode:"login", inviteToken:null};
+const state = {cards:[], people:[], peopleReady:false, selected:null, opener:null, detailsVersion:0, loadVersion:0, history:[], chatBusy:false, personEdit:null, chatId:crypto.randomUUID(), proposal:null, lastCreated:[], threadId:null, threadVersion:0, threadBusy:false, selectedPRD:null, briefEdit:null, briefs:[], briefSource:"Pasted brief", authEpoch:0, user:null, authMode:"login", inviteToken:null};
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -20,7 +20,7 @@ function notify(target, text = "", error = false) {
 async function api(path, options = {}) {
   const epoch=state.authEpoch;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), path.includes("/assistant/chat") ? 135000 : 20000);
+  const timer = setTimeout(() => controller.abort(), (path.includes("/assistant/chat") || path.endsWith("/breakdown")) ? 135000 : 20000);
   try {
     const response = await fetch(path, {cache:"no-store", credentials:"same-origin", ...options, signal:controller.signal});
     const raw = response.status === 204 ? "" : await response.text();
@@ -53,6 +53,8 @@ function showDialog(dialog, opener) {
   if (!dialog.open) dialog.showModal();
 }
 function closeDialog(dialog) {
+  if(dialog.id==="brief-dialog" && state.briefBusy)return;
+  if(dialog.id==="brief-dialog" && state.briefDirty && !confirm("Close without saving these brief edits?"))return;
   if (dialog.querySelector(".inline-editor [type=submit]:disabled")) return;
   if (dialog.querySelector(".inline-editor") && !confirm("Discard the unsaved field edit?")) return;
   if (dialog.id === "details") { state.detailsVersion++; state.selected = null; }
@@ -212,6 +214,15 @@ function renderFields(card) {
     display.setAttribute("aria-label",`Edit ${label.split(" ·")[0].toLowerCase()}`);
     display.addEventListener("click",() => editField(display,card,field,multiline));
     block.append(node("span","field-label",label),display); fields.append(block);
+  }
+  if(card.depends_on?.length){
+    const block=node("div","card-dependencies");block.append(node("span","field-label","Prerequisites · finish before Building"));
+    for(const id of card.depends_on){
+      const dependency=state.cards.find(c=>c.id===id);const control=button(`#${id} ${dependency?.title || "Prerequisite"} · ${dependency?.stage || "Unavailable"}`,"dependency-link");
+      control.addEventListener("click",()=>openCard(id,control).catch(e=>notify("#detail-message",e.message,true)));block.append(control);
+    }
+    if(card.source_prd_id)block.append(node("p","muted small",`From project brief · revision ${card.source_prd_revision}`));
+    fields.append(block);
   }
 }
 function renderStage(card) {
@@ -425,7 +436,7 @@ function drawChat() {
 }
 function setChatBusy(busy) {
   state.chatBusy=busy;
-  for(const selector of ["#chat-form [type=submit]","#clear-chat","#preview-plan","#suggest-assignments","#chat-input"])$(selector).disabled=busy;
+  for(const selector of ["#chat-form [type=submit]","#clear-chat","#preview-plan","#suggest-assignments","#chat-input","#brief-open","#brief-detach"])$(selector).disabled=busy;
   $("#proposal-panel").querySelectorAll("button").forEach(b=>{b.disabled=busy;});
 }
 async function chatAction(work) {
@@ -440,11 +451,17 @@ function renderProposal() {
   if(!state.proposal)return;
   const p=state.proposal;
   panel.append(node("p","eyebrow",p.kind==="cards" ? "1 · Review cards before creating" : "2 · Review assignments before applying"));
+  if(p.data.prd)panel.append(node("p","proposal-source",`From ${p.data.prd.title} · revision ${p.data.prd.revision}`));
   const list=node("div","proposal-items");
   if(p.kind==="cards") {
     for(const card of p.data.cards) {
       const item=node("details","proposed-card");
-      const summary=node("summary","",card.title);item.append(summary,node("p","",card.goal));
+      const summary=node("summary","",card.title);
+      if(card.key){
+        const names=(card.depends_on || []).map(key=>p.data.cards.find(c=>c.key===key)?.title || key);
+        summary.append(node("span","draft-dependency",names.length ? "After: "+names.join(" · ") : "No prerequisites in this plan"));
+      }
+      item.append(summary,node("p","",card.goal));
       const criteria=node("ul");for(const text of card.acceptance_criteria)criteria.append(node("li","",text));
       item.append(node("strong","small","Acceptance criteria"),criteria);
       if(card.out_of_scope)item.append(node("p","muted small",`Out of scope: ${card.out_of_scope}`));
@@ -488,10 +505,19 @@ async function requestAssistant(content,mode="discuss",targets=[]) {
   state.history.push({role:"user",content});state.proposal=null;renderProposal();drawChat();
   notify("#chat-message",mode==="plan" ? "Drafting cards for your review…" : mode==="assign" ? "Matching tasks to your team…" : "Thinking…");
   try {
-    const result=await api("/api/v1/assistant/chat",json("POST",{
-      conversation_id:state.chatId,mode,target_card_ids:targets,
-      messages:state.history.map(({role,content})=>({role,content})),
-    }));
+    const messages=state.history.map(({role,content})=>({role,content}));
+    let result;
+    if(mode==="plan" && state.selectedPRD){
+      if(messages.length>30 || messages.reduce((n,m)=>n+m.content.length,0)>18000)throw new Error("Start a new conversation for this brief; the breakdown discussion is too long.");
+      result=await api(`/api/v1/prds/${state.selectedPRD.id}/breakdown`,json("POST",{
+        conversation_id:state.chatId,expected_revision:state.selectedPRD.revision,messages,
+      }));
+    }else{
+      result=await api("/api/v1/assistant/chat",json("POST",{
+        conversation_id:state.chatId,mode,target_card_ids:targets,messages,
+        ...(state.selectedPRD && mode!=="assign" ? {prd_id:state.selectedPRD.id,prd_revision:state.selectedPRD.revision} : {}),
+      }));
+    }
     const context=result.proposal ? `\nDraft proposal data (not applied): ${JSON.stringify(result.proposal.data)}` : "";
     state.history.push({role:"assistant",content:result.message+context,display:result.message});
     state.proposal=result.proposal || null;drawChat();renderProposal();
@@ -557,6 +583,7 @@ async function enterWorkspace(user) {
   await Promise.all([loadBoard(),loadPeople()]);
 }
 function expireSession() {
+  state.selectedPRD=null;state.briefs=[];renderBriefSelection();
   state.authEpoch++;state.user=null;state.cards=[];state.people=[];state.history=[];state.proposal=null;
   state.threadId=null;state.threadVersion++;state.loadVersion++;state.chatId=crypto.randomUUID();
   state.lastCreated=[];$("#suggest-assignments").hidden=true;drawChat();renderProposal();
@@ -596,6 +623,134 @@ $("#sign-out").addEventListener("click",event=>action(event.currentTarget,"#acco
 $("#copy-invite").addEventListener("click",event=>action(event.currentTarget,"#invite-message",async()=>{
   try{await navigator.clipboard.writeText($("#invite-url").value);notify("#invite-message","Link copied. Share it privately.");}
   catch{ $("#invite-url").select();notify("#invite-message","Select the link and press Ctrl+C to copy it.");}
+}));
+// Saved project briefs: text files only, explicit save/use, never automatic writes.
+function renderBriefSelection(){
+  $("#selected-brief").textContent=state.selectedPRD ? `${state.selectedPRD.title} · revision ${state.selectedPRD.revision}` : "No brief selected · chat works without one";
+  $("#brief-open").textContent=state.selectedPRD ? "Change brief" : "Add brief";
+  $("#brief-detach").hidden=!state.selectedPRD;
+}
+function briefCount(){
+  $("#brief-counter").textContent=`${$("#brief-content").value.length.toLocaleString()} / 18,000 characters · minimum 80`;
+}
+function fillBrief(document=null){
+  state.briefLoadVersion=(state.briefLoadVersion || 0)+1;
+  state.briefEdit=document;state.briefSource=document?.source_name || "Pasted brief";state.briefDirty=false;
+  $("#brief-title").value=document?.title || "";$("#brief-content").value=document?.content || "";$("#brief-file").value="";
+  const editable=!document || document.owner_id===state.user.id || state.user.is_admin;
+  $("#brief-title").readOnly=$("#brief-content").readOnly=!editable;$("#brief-file").disabled=!editable;$(".file-button").hidden=!editable;
+  $("#brief-save").textContent=editable ? "Save and use brief" : "Use this brief";briefCount();notify("#brief-message");
+}
+async function openBrief(opener){
+  const dialog=$("#brief-dialog"), assistant=$("#assistant-dialog");
+  if(dialog.open)return;
+  const version=state.briefOpenVersion=(state.briefOpenVersion || 0)+1;
+  const epoch=state.authEpoch;
+  const select=$("#brief-library");
+  select.replaceChildren(new Option("New brief",""));
+  fillBrief();
+  // Use one modal at a time, and show the form before waiting for the API.
+  dialog._returnToAssistant=assistant.open;
+  if(assistant.open)assistant.close();
+  showDialog(dialog,opener);
+  const controls=[...dialog.querySelectorAll("input,textarea,select,button:not([data-close])")];
+  controls.forEach(el=>el.disabled=true);
+  notify("#brief-message","Loading saved briefs…");
+  try{
+    const briefs=await api("/api/v1/prds");
+    if(!dialog.open || version!==state.briefOpenVersion || epoch!==state.authEpoch)return;
+    if(!Array.isArray(briefs))throw new Error("The saved brief list is invalid. Please restart the updated server.");
+    state.briefs=briefs;
+    for(const doc of briefs)select.add(new Option(`${doc.title} · r${doc.revision}`,doc.id));
+    if(state.selectedPRD){
+      const doc=await api(`/api/v1/prds/${state.selectedPRD.id}`);
+      if(!dialog.open || version!==state.briefOpenVersion || epoch!==state.authEpoch)return;
+      select.value=doc.id;fillBrief(doc);
+    }
+    notify("#brief-message");
+  }catch(error){
+    if(dialog.open && version===state.briefOpenVersion && epoch===state.authEpoch)
+      notify("#brief-message",`Could not load saved briefs. You can still draft a new brief here. ${error.message}`,true);
+  }finally{
+    if(version===state.briefOpenVersion){
+      controls.forEach(el=>el.disabled=false);
+      $("#brief-file").disabled=$("#brief-title").readOnly;
+    }
+  }
+}
+$("#brief-dialog").addEventListener("close",()=>{
+  state.briefOpenVersion=(state.briefOpenVersion || 0)+1;
+  const dialog=$("#brief-dialog");
+  if(dialog._returnToAssistant && state.user && !$("#workspace").hidden){
+    dialog._returnToAssistant=false;
+    showDialog($("#assistant-dialog"),$("#assistant-open"));
+    $("#brief-open").focus();
+  }
+});
+async function resetBriefConversation(document){
+  if(state.proposal)await cancelProposal();
+  state.history=[];state.chatId=crypto.randomUUID();state.proposal=null;state.lastCreated=[];$("#suggest-assignments").hidden=true;$("#chat-input").value="";
+  state.selectedPRD=document ? {id:document.id,title:document.title,revision:document.revision} : null;
+  drawChat();renderProposal();renderBriefSelection();notify("#chat-message",document ? "Brief attached. Discuss it here, or choose Preview cards. No cards have been created." : "Brief removed. Your saved briefs and board are unchanged.");
+}
+$("#brief-open").addEventListener("click",event=>{
+  const opener=event.currentTarget;
+  action(opener,"#chat-message",()=>openBrief(opener));
+});
+$("#brief-library").addEventListener("change",event=>{
+  const select=event.currentTarget, previous=state.briefEdit?.id || "";
+  if(state.briefDirty && !confirm("Discard unsaved brief edits?")){select.value=previous;return;}
+  if(!select.value){fillBrief();return;}
+  const version=++state.briefLoadVersion;
+  action(select,"#brief-message",async()=>{const doc=await api(`/api/v1/prds/${select.value}`);if(version===state.briefLoadVersion)fillBrief(doc);});
+});
+$("#brief-new").addEventListener("click",()=>{
+  if(state.briefDirty && !confirm("Discard unsaved brief edits?"))return;
+  $("#brief-library").value="";fillBrief();$("#brief-title").focus();
+});
+for(const id of ["#brief-title","#brief-content"])$(id).addEventListener("input",()=>{state.briefDirty=true;briefCount();});
+$("#brief-file").addEventListener("change",async event=>{
+  const file=event.target.files[0];if(!file)return;const version=state.briefLoadVersion;
+  try{
+    if(!/\.(txt|md)$/i.test(file.name))throw new Error("Use a .txt or .md file. PDF and Word are not supported yet.");
+    if(file.size>65536)throw new Error("Use a text file smaller than 64 KB.");
+    if(state.briefDirty && !confirm("Replace the current requirements with this file?"))return;
+    const text=new TextDecoder("utf-8",{fatal:true}).decode(await file.arrayBuffer());
+    if(version!==state.briefLoadVersion)return;
+    if(text.includes("\0"))throw new Error("This does not look like a text document.");
+    if(text.trim().length<80 || text.length>18000)throw new Error("The brief must contain 80–18,000 characters.");
+    $("#brief-content").value=text;
+    if(!$("#brief-title").value)$("#brief-title").value=file.name.replace(/\.(txt|md)$/i,"").slice(0,150);
+    state.briefSource=file.name.slice(0,150);state.briefDirty=true;briefCount();notify("#brief-message","Text loaded locally. Save and use it to attach it to this conversation.");
+  }catch(error){notify("#brief-message",error.message,true);}
+  finally{event.target.value="";}
+});
+$("#brief-form").addEventListener("submit",event=>{
+  event.preventDefault();if(state.briefBusy)return;
+  action($("#brief-save"),"#brief-message",async()=>{
+    if(state.history.length && !confirm("Use this brief in a fresh conversation? Your current chat will clear; saved cards stay unchanged."))return;
+    state.briefBusy=true;
+    const controls=[...$("#brief-dialog").querySelectorAll("input,textarea,select,button")];controls.forEach(el=>el.disabled=true);
+    try{
+      const previous=state.briefEdit;
+      const editable=!previous || previous.owner_id===state.user.id || state.user.is_admin;
+      let document;
+      if(!editable)document=await api(`/api/v1/prds/${previous.id}`);
+      else if(previous && !state.briefDirty)document=await api(`/api/v1/prds/${previous.id}`);
+      else{
+        const body={title:$("#brief-title").value.trim(),content:$("#brief-content").value.trim(),source_name:state.briefSource};
+        if(previous)body.expected_revision=previous.revision;
+        document=await api(previous ? `/api/v1/prds/${previous.id}` : "/api/v1/prds",json(previous ? "PUT" : "POST",body));
+        // Keep the saved identity even if clearing an old preview later fails.
+        state.briefEdit=document;state.briefDirty=false;
+      }
+      await resetBriefConversation(document);state.briefDirty=false;state.briefBusy=false;closeDialog($("#brief-dialog"));
+    }finally{state.briefBusy=false;controls.forEach(el=>el.disabled=false);}
+  });
+});
+$("#brief-detach").addEventListener("click",()=>chatAction(async()=>{
+  if(state.history.length && !confirm("Remove this brief and start a fresh conversation? Saved work stays unchanged."))return;
+  await resetBriefConversation(null);
 }));
 async function start() {
   const token=new URLSearchParams(location.hash.slice(1)).get("invite");

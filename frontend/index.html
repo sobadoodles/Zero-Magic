@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Zero Magic — Board</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=brief-open-fix-1">
   <script defer src="/static/vendor/marked.umd.js"></script>
   <script defer src="/static/vendor/purify.min.js"></script>
-  <script defer src="/static/app.js"></script>
+  <script defer src="/static/app.js?v=brief-open-fix-1"></script>
 </head>
 <body>
 <section id="auth-screen" class="auth-screen" aria-labelledby="auth-heading" hidden>
@@ -53,6 +53,7 @@
 <dialog id="assistant-dialog" class="assistant-panel" aria-labelledby="assistant-heading">
   <header class="dialog-header"><div><p class="eyebrow">Think it through</p><h2 id="assistant-heading">Your planning partner.</h2></div><button class="icon-button" data-close aria-label="Close assistant">×</button></header>
   <p class="assistant-notice">Discuss first. Preview cards, approve creation, then separately approve assignments.</p>
+  <div class="brief-bar"><div><span class="field-label">Project brief</span><span id="selected-brief">No brief selected · chat works without one</span></div><div class="brief-actions"><button id="brief-open" type="button">Add brief</button><button id="brief-detach" type="button" hidden aria-label="Remove brief from this conversation">×</button></div></div>
   <div id="chat-history" class="chat-history" role="log" aria-live="polite" aria-label="Planning conversation"><div class="chat-welcome"><span class="sparkle" aria-hidden="true">✧</span><h3>What are you thinking of building?</h3><p>Describe an idea, a change of direction, or something that feels too big. We’ll break it down together.</p></div></div>
   <section id="proposal-panel" class="proposal-panel" hidden aria-label="Review proposed changes"></section>
   <p id="chat-message" class="feedback" role="status"></p><form id="chat-form"><label for="chat-input" class="sr-only">Your message</label><textarea id="chat-input" rows="3" maxlength="6000" required placeholder="I’d like to add…"></textarea><div class="chat-actions"><div class="assistant-tools"><button type="button" id="preview-plan">Preview cards</button><button type="button" id="suggest-assignments" hidden>Suggest assignments</button><button type="button" id="clear-chat" class="button-quiet">New conversation</button></div><button class="button-primary" type="submit">Send ↗</button></div></form><p class="muted small">Approvals apply only the displayed preview. Conversation stays in this tab until reload. Workspace context is sent to Groq.</p>
@@ -71,6 +72,15 @@
 <dialog id="invite-dialog" aria-labelledby="invite-heading">
   <header class="dialog-header"><div><p class="eyebrow">Make room for a teammate</p><h2 id="invite-heading">Invite to the board.</h2></div><button class="icon-button" data-close aria-label="Close invitation">×</button></header>
   <p class="muted small">This private link lets this person choose a username and password. It works once and expires in 48 hours. Generating another link replaces the old one.</p><label for="invite-url">Invitation link</label><input id="invite-url" readonly><p class="muted small">A localhost link only works on this computer. For other devices, use a properly configured shared server address. Share the link privately.</p><p id="invite-message" class="feedback" role="status"></p><div class="form-actions"><button id="copy-invite" class="button-primary">Copy link</button></div>
+</dialog>
+<dialog id="brief-dialog" class="brief-dialog" aria-labelledby="brief-heading">
+  <header class="dialog-header"><div><p class="eyebrow">Start with the bigger picture</p><h2 id="brief-heading">Your project brief.</h2></div><button class="icon-button" data-close aria-label="Close project brief">×</button></header>
+  <p class="muted small">A PRD describes who this is for, what it should do, and what’s out of scope. Paste yours or load a UTF-8 .txt / .md file. PDF and Word support comes later.</p>
+  <div class="brief-library"><div><label for="brief-library">Saved briefs</label><select id="brief-library"><option value="">New brief</option></select></div><button id="brief-new" type="button">New brief</button></div>
+  <form id="brief-form"><label for="brief-title">Title</label><input id="brief-title" required maxlength="150" placeholder="e.g. Team notification preferences"><div class="brief-content-label"><label for="brief-content">Requirements</label><label class="file-button" for="brief-file">Load .txt / .md</label><input id="brief-file" class="sr-only" type="file" accept=".txt,.md,text/plain,text/markdown"></div><textarea id="brief-content" required minlength="80" maxlength="18000" rows="8" placeholder="Who is this for?
+What must they be able to do?
+How will we know it works?
+What should we leave out?"></textarea><p id="brief-counter" class="muted small">0 / 18,000 characters · minimum 80</p><p id="brief-message" class="feedback" role="status"></p><p class="muted small">Saved to this workspace and visible to signed-in teammates. Selected brief text is sent to Groq when you discuss or generate cards. Don’t include secrets.</p><div class="form-actions"><button type="button" data-close>Cancel</button><button id="brief-save" class="button-primary" type="submit">Save and use brief</button></div></form>
 </dialog>
 </body>
 </html>

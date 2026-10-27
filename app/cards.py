@@ -32,6 +32,7 @@ def create_card(payload: CardCreate):
         "id": card_id,
         "stage": "Spec",
         "assignee": None,
+        "depends_on": [],
     }
 
     storage.cards[card_id] = card
@@ -78,6 +79,9 @@ def update_card(card_id: int, payload: CardUpdate):
 @router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
 @storage.synchronized
 def delete_card(card_id: int):
+    dependents = [c["id"] for c in storage.cards.values() if card_id in c.get("depends_on",[])]
+    if dependents:
+        raise HTTPException(409, "Other cards depend on this card: " + ", ".join(map(str,dependents)))
     card = storage.cards.pop(card_id, None)
 
     if card is None:
@@ -117,6 +121,10 @@ def change_card_stage(card_id: int, payload: CardStageUpdate):
             ),
         )
 
+    if requested_stage == "Building":
+        blocked = [ident for ident in card.get("depends_on",[]) if storage.cards.get(ident,{}).get("stage") != "Done"]
+        if blocked:
+            raise HTTPException(409, "Finish prerequisite cards first: " + ", ".join(f"#{i}" for i in blocked))
     card["stage"] = requested_stage
     return card
 
