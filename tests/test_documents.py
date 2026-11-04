@@ -185,3 +185,151 @@ def test_worker_does_not_inherit_api_key(client,monkeypatch):
         return subprocess.CompletedProcess(command,0,json.dumps({'ok':True,'text':TEXT,'page_count':1,'warnings':[]}).encode())
     monkeypatch.setattr(documents.subprocess,'run',fake_run)
     assert upload(client).status_code==200
+
+
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "می\u200cرود",       # Persian half-space
+        "hello\u00a0world",  # non-breaking space
+    ],
+)
+def test_docx_preserves_important_spaces(text):
+    result = extract(docx(text=text), ".docx")
+    assert text in result["text"]
+
+
+def test_extraction_can_return_separate_pdf_pages():
+    result = extract(pdf(pages=2), ".pdf", include_pages=True)
+
+    assert len(result["pages"]) == 2
+    assert result["pages"][0]["page"] == 1
+    assert result["pages"][1]["page"] == 2
+    assert TEXT in result["pages"][0]["text"]
+
+
+def test_extraction_does_not_invent_word_page_numbers():
+    result = extract(docx(), ".docx", include_pages=True)
+
+    assert len(result["pages"]) == 1
+    assert result["pages"][0]["page"] is None
+    assert TEXT in result["pages"][0]["text"]
+
+
+def test_pdf_extraction_can_be_turned_into_chunks():
+    from app.document_chunks import chunk_document
+
+    extracted = extract(pdf(pages=2), ".pdf", include_pages=True)
+    chunks = chunk_document("brief.pdf", extracted)
+
+    assert [chunk["page"] for chunk in chunks] == [1, 2]
+    assert all(chunk["source"] == "brief.pdf" for chunk in chunks)
+    assert all(TEXT in chunk["text"] for chunk in chunks)
+
+
+def test_word_extraction_can_be_turned_into_chunks():
+    from app.document_chunks import chunk_document
+
+    extracted = extract(docx(), ".docx", include_pages=True)
+    chunks = chunk_document("brief.docx", extracted)
+
+    assert chunks
+    assert all(chunk["page"] is None for chunk in chunks)
+    assert all(chunk["source"] == "brief.docx" for chunk in chunks)
+    assert any(TEXT in chunk["text"] for chunk in chunks)
+    assert any("Table requirement" in chunk["text"] for chunk in chunks)
+
+def test_folder_ingestion_writes_labeled_chunks(tmp_path):
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    folder = tmp_path / "documents"
+    folder.mkdir()
+    (folder / "brief.pdf").write_bytes(pdf())
+    (folder / "brief.docx").write_bytes(docx())
+
+    output = tmp_path / "chunks.json"
+    project_root = Path(__file__).resolve().parent.parent
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scripts.ingest_documents",
+            str(folder),
+            "--output",
+            str(output),
+        ],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    chunks = json.loads(output.read_text(encoding="utf-8"))
+    assert {chunk["source"] for chunk in chunks} == {
+        "brief.pdf",
+        "brief.docx",
+    }
+    assert any(
+        chunk["source"] == "brief.pdf" and chunk["page"] == 1
+        for chunk in chunks
+    )
+    assert all(
+        chunk["page"] is None
+        for chunk in chunks
+        if chunk["source"] == "brief.docx"
+    )
+
+
+def test_word_extraction_preserves_heading_structure():
+    document = io.BytesIO()
+
+    xml = """
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>
+        <w:p>
+          <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+          <w:r><w:t>Goal</w:t></w:r>
+        </w:p>
+        <w:p><w:r><w:t>Build a board.</w:t></w:r></w:p>
+        <w:p>
+          <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+          <w:r><w:t>Rules</w:t></w:r>
+        </w:p>
+        <w:p><w:r><w:t>Reject blank titles.</w:t></w:r></w:p>
+      </w:body>
+    </w:document>
+    """
+
+    with zipfile.ZipFile(document, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("word/document.xml", xml)
+
+    result = extract(document.getvalue(), ".docx", include_pages=True)
+
+    assert result["pages"][0]["sections"] == [
+        {"heading": "Goal", "text": "Build a board."},
+        {"heading": "Rules", "text": "Reject blank titles."},
+    ]
+
+def test_pdf_warns_when_extraction_contains_null_characters(monkeypatch):
+    from types import SimpleNamespace
+    import pypdf
+
+    page = SimpleNamespace(
+        get_contents=lambda: None,
+        extract_text=lambda: "bro\x00ken text",
+    )
+    reader = SimpleNamespace(is_encrypted=False, pages=[page])
+    monkeypatch.setattr(pypdf, "PdfReader", lambda *args, **kwargs: reader)
+
+    result = extract(b"%PDF-1.7 sample", ".pdf", include_pages=True)
+
+    assert result["pages"][0]["text"] == "broken text"
+    assert any("corrupt" in warning.lower() for warning in result["warnings"])

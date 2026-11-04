@@ -3,19 +3,48 @@ from itertools import count
 import pytest
 from fastapi.testclient import TestClient
 
-from app import team
+from app import storage, team
 from app.main import app
+
+from app import storage
 
 client = TestClient(app)
 
-
 @pytest.fixture(autouse=True)
-def reset_people():
-    team.people.clear()
-    team.person_ids = count(start=1)
+def signed_in_workspace():
+    # conftest.py selects a temporary database before app imports.
+    with storage.lock, storage.connection() as db:
+        for table in (
+            "sessions", "invitations", "users", "login_attempts",
+            "prd_generation_requests", "prd_revisions", "prds",
+            "proposals", "comments", "cards", "people", "projects",
+            "counters",
+        ):
+            db.execute(f"DELETE FROM {table}")
+
+        for records in (
+            storage.cards, storage.people, storage.comments,
+            storage.proposals, storage.prds, storage.projects,
+        ):
+            records.clear()
+
+        storage.card_ids = storage.Counter(1)
+        storage.person_ids = storage.Counter(1)
+        storage.comment_ids = storage.Counter(1)
+
+    # These lines must be OUTSIDE the with block.
+    client.cookies.clear()
+    setup = client.post(
+        "/api/v1/auth/setup",
+        json={
+            "name": "Test Owner",
+            "username": "testowner",
+            "password": "test-passphrase-12345",
+        },
+    )
+    assert setup.status_code == 201, setup.text
     yield
-    team.people.clear()
-    team.person_ids = count(start=1)
+    client.cookies.clear()
 
 
 def make_person():
@@ -34,11 +63,15 @@ def make_card():
 
 
 def test_create_and_list_people():
-    assert client.get("/api/v1/people").json() == []
+    before = client.get("/api/v1/people").json()
+    assert len(before) == 1
+    assert before[0]["name"] == "Test Owner"
+
     person = make_person()
     assert person["name"] == "Sara"
     assert person["skills"] == ["Vue", "Testing"]
-    assert client.get("/api/v1/people").json() == [person]
+
+    assert client.get("/api/v1/people").json() == before + [person]
 
 
 def test_edit_person():
@@ -51,8 +84,9 @@ def test_edit_person():
 
 
 def test_blank_person_rejected():
-    assert client.post("/api/v1/people",json={"name":"   "}).status_code == 422
-    assert client.get("/api/v1/people").json() == []
+    before = client.get("/api/v1/people").json()
+    assert client.post("/api/v1/people", json={"name": "   "}).status_code == 422
+    assert client.get("/api/v1/people").json() == before
 
 
 def test_assign_and_unassign_person():

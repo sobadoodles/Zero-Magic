@@ -1,5 +1,5 @@
 from typing import Annotated
-
+from pydantic import AfterValidator
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -8,9 +8,16 @@ from pydantic import (
     model_validator,
 )
 
+def require_visible_text(value: str) -> str:
+    if not any(c.isprintable() and not c.isspace() for c in value):
+        raise ValueError("Text must contain a visible character")
+    return value
+
+
 NonBlankText = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1),
+    AfterValidator(require_visible_text),
 ]
 
 

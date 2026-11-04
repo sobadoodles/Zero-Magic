@@ -1,10 +1,44 @@
 from fastapi.testclient import TestClient
-
+from app import storage
 from app.main import app
 import pytest
 
 client = TestClient(app)
 
+@pytest.fixture(autouse=True)
+def signed_in_workspace():
+    # tests/conftest.py selects a temporary database before app imports.
+    with storage.lock, storage.connection() as db:
+        for table in (
+            "sessions", "invitations", "users", "login_attempts",
+            "prd_generation_requests", "prd_revisions", "prds",
+            "proposals", "comments", "cards", "people", "projects",
+            "counters",
+        ):
+            db.execute(f"DELETE FROM {table}")
+
+        for records in (
+            storage.cards, storage.people, storage.comments,
+            storage.proposals, storage.prds, storage.projects,
+        ):
+            records.clear()
+
+        storage.card_ids = storage.Counter(1)
+        storage.person_ids = storage.Counter(1)
+        storage.comment_ids = storage.Counter(1)
+
+    client.cookies.clear()
+    setup = client.post(
+        "/api/v1/auth/setup",
+        json={
+            "name": "Test Owner",
+            "username": "testowner",
+            "password": "test-passphrase-12345",
+        },
+    )
+    assert setup.status_code == 201, setup.text
+    yield
+    client.cookies.clear()
 
 def test_create_card():
     response = client.post(
@@ -294,8 +328,7 @@ def test_add_and_list_card_comments():
     added = client.post(
         comments_url,
         json={
-            "author": "  Intern  ",
-            "text": "  This is ready for review.  ",
+        "text": "  This is ready for review.  ",
         },
     )
 
@@ -303,9 +336,43 @@ def test_add_and_list_card_comments():
     comment = added.json()
     assert isinstance(comment["id"], int)
     assert comment["card_id"] == card_id
-    assert comment["author"] == "Intern"
+    assert comment["author"] == "Test Owner"
     assert comment["text"] == "This is ready for review."
 
     listed = client.get(comments_url)
     assert listed.status_code == 200
     assert listed.json() == [comment]
+
+@pytest.mark.parametrize("title", ["\u200b", "\u200c"])
+def test_invisible_only_card_title_is_rejected(title):
+    response = client.post(
+        "/api/v1/cards",
+        json={"title": title, "goal": "Test validation"},
+    )
+
+    assert response.status_code == 422
+    assert client.get("/api/v1/cards").json() == []
+
+@pytest.mark.parametrize("text", ["\u200b", "\u200c"])
+def test_invisible_only_comment_is_rejected(text):
+    created = client.post(
+        "/api/v1/cards",
+        json={"title": "Task", "goal": "Test comments"},
+    )
+    assert created.status_code == 201
+
+    url = f"/api/v1/cards/{created.json()['id']}/comments"
+    response = client.post(url, json={"text": text})
+
+    assert response.status_code == 422
+    assert client.get(url).json() == []
+
+
+@pytest.mark.parametrize("name", ["\u200b", "\u200c"])
+def test_invisible_only_person_name_is_rejected(name):
+    before = client.get("/api/v1/people").json()
+
+    response = client.post("/api/v1/people", json={"name": name})
+
+    assert response.status_code == 422
+    assert client.get("/api/v1/people").json() == before

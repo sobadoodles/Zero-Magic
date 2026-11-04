@@ -17,19 +17,51 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def reset_workspace(monkeypatch):
-    storage.cards.clear()
-    storage.comments.clear()
-    storage.card_ids = count(1)
-    storage.comment_ids = count(1)
-    team.people.clear()
-    team.person_ids = count(1)
-    assistant.proposals.clear()
-    monkeypatch.setattr(assistant, "ask_model", lambda messages, **kwargs: {
-        "message": "## A small plan\n\n**Start with one testable task.**", "model": "mock-model",
-    })
+    # conftest.py selects a temporary database before app imports.
+    with storage.lock, storage.connection() as db:
+        for table in (
+            "sessions", "invitations", "users", "login_attempts",
+            "prd_generation_requests", "prd_revisions", "prds",
+            "proposals", "comments", "cards", "people", "projects",
+            "counters",
+        ):
+            db.execute(f"DELETE FROM {table}")
+
+        for records in (
+            storage.cards, storage.people, storage.comments,
+            storage.proposals, storage.prds, storage.projects,
+        ):
+            records.clear()
+
+        storage.card_ids = storage.Counter(1)
+        storage.person_ids = storage.Counter(1)
+        storage.comment_ids = storage.Counter(1)
+
+    # Sign in outside the lock, using the client the tests use.
+    client.cookies.clear()
+    setup = client.post(
+        "/api/v1/auth/setup",
+        json={
+            "name": "Test Owner",
+            "username": "testowner",
+            "password": "test-passphrase-12345",
+        },
+    )
+    assert setup.status_code == 201, setup.text
+
+    # Keep the fake model response: these tests don't call a real model.
+    monkeypatch.setattr(
+        assistant,
+        "ask_model",
+        lambda messages, **kwargs: {
+            "message": "## A small plan\n\n**Start with one testable task.**",
+            "model": "mock-model",
+        },
+    )
+
     yield
-    assistant.proposals.clear()
-    team.people.clear()
+    client.cookies.clear()
+
 
 
 def model_json(monkeypatch, data):
@@ -199,12 +231,28 @@ def test_wrong_target_rejected(monkeypatch):
     assert response.status_code==502
 
 
-def test_assignment_without_people_does_not_call_model(monkeypatch):
-    card=create_card()
-    monkeypatch.setattr(assistant,"ask_model",lambda *a,**k:pytest.fail("No model needed"))
-    _,response=preview(monkeypatch,"assign",[card["id"]])
-    assert response.status_code==200
+def test_empty_team_snapshot_does_not_call_model(monkeypatch):
+    card = create_card()
+    real_snapshot = assistant.snapshot
+
+    # Simulate an empty team without deleting the signed-in owner.
+    def empty_team_snapshot():
+        snapshot = real_snapshot()
+        snapshot["people"] = []
+        return snapshot
+
+    monkeypatch.setattr(assistant, "snapshot", empty_team_snapshot)
+    monkeypatch.setattr(
+        assistant,
+        "ask_model",
+        lambda *args, **kwargs: pytest.fail("No model needed"),
+    )
+
+    _, response = preview(monkeypatch, "assign", [card["id"]])
+
+    assert response.status_code == 200, response.text
     assert response.json()["proposal"] is None
+    assert storage.cards[card["id"]]["assignee"] is None
 
 
 def test_changed_assignment_not_overwritten(monkeypatch):
@@ -249,14 +297,27 @@ def test_assignment_batch_rolls_back(monkeypatch):
 
 
 def test_concurrent_approval_does_not_duplicate(monkeypatch):
-    owner,response=preview(monkeypatch)
-    id=response.json()["proposal"]["id"]
+    owner, response = preview(monkeypatch)
+    assert response.status_code == 200, response.text
+
+    proposal_id = response.json()["proposal"]["id"]
+    session_cookies = dict(client.cookies)
+
     def confirm_once(_):
         with TestClient(app) as independent:
-            return independent.post(f"/api/v1/assistant/proposals/{id}/confirm",json={"conversation_id":owner,"approve":True}).json()
-    with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(confirm_once,range(2)))
-    assert results[0]==results[1]
-    assert len(storage.cards)==2
+            independent.cookies.update(session_cookies)
+            result = independent.post(
+                f"/api/v1/assistant/proposals/{proposal_id}/confirm",
+                json={"conversation_id": owner, "approve": True},
+            )
+            assert result.status_code == 200, result.text
+            return result.json()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(confirm_once, range(2)))
+
+    assert results[0] == results[1]
+    assert len(storage.cards) == 2
 
 
 def test_injected_card_text_cannot_trigger_writes(monkeypatch):
@@ -276,21 +337,44 @@ def test_provider_failure_returns_503_without_writes(monkeypatch):
     assert storage.cards=={}
 
 
-def test_profile_reply_uses_server_name_and_timestamp():
-    c=create_card();p=person()
-    response=client.post(f"/api/v1/cards/{c['id']}/comments",json={"author":"Someone else","author_id":p["id"],"text":"Hello"})
-    assert response.status_code==201
-    assert response.json()["author"]==p["name"]
-    assert response.json()["created_at"]
-    assert client.get("/api/v1/cards").json()[0]["comment_count"]==1
+def test_comment_uses_signed_in_author_and_server_timestamp():
+    card = create_card()
+    other_person = person()
+
+    # A caller cannot choose another person as the author.
+    forged = client.post(
+        f"/api/v1/cards/{card['id']}/comments",
+        json={
+            "author_id": other_person["id"],
+            "text": "Hello",
+        },
+    )
+    assert forged.status_code == 422
+    assert storage.comments == {}
+
+    # A valid comment gets its author from the signed-in user.
+    response = client.post(
+        f"/api/v1/cards/{card['id']}/comments",
+        json={"text": "Hello"},
+    )
+    assert response.status_code == 201
+    comment = response.json()
+    assert comment["author"] == "Test Owner"
+    assert comment["author_id"] != other_person["id"]
+    assert comment["created_at"]
+    assert client.get("/api/v1/cards").json()[0]["comment_count"] == 1
 
 
-def test_unknown_profile_reply_rejected():
-    c=create_card()
-    response=client.post(f"/api/v1/cards/{c['id']}/comments",json={"author":"Unknown","author_id":999,"text":"Hello"})
-    assert response.status_code==404
-    assert storage.comments=={}
+def test_comment_rejects_unknown_author_id():
+    card = create_card()
 
+    response = client.post(
+        f"/api/v1/cards/{card['id']}/comments",
+        json={"author_id": 999, "text": "Hello"},
+    )
+
+    assert response.status_code == 422
+    assert storage.comments == {}
 
 def test_vague_plan_can_ask_for_clarification(monkeypatch):
     _,response=preview(monkeypatch,data={"clarification":"Who is the first version for?"})

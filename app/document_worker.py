@@ -3,6 +3,7 @@ import io
 import json
 import re
 import sys
+from unittest import result
 import zipfile
 
 MAX_TEXT = 18000
@@ -16,7 +17,10 @@ class DocumentError(ValueError):
 
 def clean(text):
     text = text.replace('\r\n', '\n').replace('\r', '\n')
-    text = ''.join(c for c in text if c in '\n\t' or (c.isprintable() and c != '\x00'))
+    text = ''.join(
+        c for c in text
+        if c in '\n\t\u200c\u00a0' or (c.isprintable() and c != '\x00')
+    )
     return re.sub(r'\n{4,}', '\n\n\n', text).strip()
 
 
@@ -26,37 +30,75 @@ def bounded(text):
         raise DocumentError('Extracted text exceeds 18,000 characters. Import a smaller document or paste only the first-release requirements. Nothing was truncated.')
     return text
 
-
-def pdf_text(data):
+def pdf_text(data, include_pages=False):
     from pypdf import PdfReader
+
     if not data.startswith(b'%PDF-'):
         raise DocumentError('This file is not a valid PDF. Export it as PDF again.')
+
     reader = PdfReader(io.BytesIO(data), strict=False)
     if reader.is_encrypted:
-        raise DocumentError('Password-protected PDFs are not supported. Export an unlocked copy first.')
+        raise DocumentError(
+            'Password-protected PDFs are not supported. Export an unlocked copy first.'
+        )
+
     count = len(reader.pages)
     if count > 50:
         raise DocumentError('Use a PDF with no more than 50 pages.')
-    blocks, empty = [], 0
+
+    blocks, pages, empty = [], [], 0
+    pages_with_nulls = []
+
     for i, page in enumerate(reader.pages, 1):
         contents = page.get_contents()
         if contents and len(contents.get_data()) > 8 * 1024 * 1024:
-            raise DocumentError('This PDF page is too complex. Export a simpler, smaller PDF.')
-        text = clean(page.extract_text() or '')
+            raise DocumentError(
+                'This PDF page is too complex. Export a simpler, smaller PDF.'
+            )
+
+        raw_text = page.extract_text() or ''
+        if '\x00' in raw_text:
+            pages_with_nulls.append(i)
+        text = clean(raw_text)
         if text:
+            if include_pages:
+                pages.append({"page": i, "text": text})
             blocks.append(f'[Page {i}]\n{text}')
             bounded('\n\n'.join(blocks))
         else:
             empty += 1
+
     if not blocks:
-        raise DocumentError('No readable text was found. This PDF may be scanned and need OCR. Paste the text or import a text-based PDF instead.')
-    warnings = ['PDF reading order can differ from the layout. Review tables and columns before saving.']
+        raise DocumentError(
+            'No readable text was found. This PDF may be scanned and need OCR. '
+            'Paste the text or import a text-based PDF instead.'
+        )
+
+    warnings = [
+        'PDF reading order can differ from the layout. Review tables and columns before saving.'
+    ]
+    if pages_with_nulls:
+        page_numbers = ', '.join(str(number) for number in pages_with_nulls)
+        warnings.append(
+            f'PDF text may be corrupted: null characters were found on '
+            f'page(s) {page_numbers}. Compare the extracted text with the original.'
+        )
     if empty:
-        warnings.append(f'{empty} page(s) had no extractable text; they may be blank or need OCR. Image-only content was not imported.')
-    return {'text': bounded('\n\n'.join(blocks)), 'page_count': count, 'warnings': warnings}
+        warnings.append(
+            f'{empty} page(s) had no extractable text; they may be blank or need OCR. '
+            'Image-only content was not imported.'
+        )
 
+    result = {
+        'text': bounded('\n\n'.join(blocks)),
+        'page_count': count,
+        'warnings': warnings,
+    }
+    if include_pages:
+        result['pages'] = pages
+    return result
 
-def docx_text(data):
+def docx_text(data, include_sections=False):
     from defusedxml import ElementTree
     if not data.startswith(b'PK\x03\x04'):
         raise DocumentError('This is not a valid .docx file. Old .doc files are not supported.')
@@ -93,32 +135,85 @@ def docx_text(data):
         return ''.join(runs(child) for child in element)
 
     blocks = []
+    sections = []
+    current_heading = None
+    section_blocks = []
+
+    def finish_section():
+        if current_heading is not None or section_blocks:
+            sections.append({
+                "heading": current_heading,
+                "text": "\n\n".join(section_blocks),
+            })
+
     def walk(element):
+        nonlocal current_heading, section_blocks
+
         if element.tag == W + 'p':
             text = clean(runs(element))
             if text:
                 blocks.append(text)
                 bounded('\n\n'.join(blocks))
+
+                if include_sections:
+                    style = element.find(f'{W}pPr/{W}pStyle')
+                    style_id = style.get(W + 'val', '') if style is not None else ''
+
+                    if re.fullmatch(r'Heading[1-9]', style_id, re.IGNORECASE):
+                        finish_section()
+                        current_heading = text
+                        section_blocks = []
+                    else:
+                        section_blocks.append(text)
             return
+
         if element.tag != W + 'del':
             for child in element:
                 walk(child)
+
     walk(body)
+
+    if include_sections:
+        finish_section()
+
     text = bounded('\n\n'.join(blocks))
     if not text:
-        raise DocumentError('No readable text was found. Image-only Word documents need OCR or pasted text.')
-    return {'text': text, 'page_count': None, 'warnings': ['Imported body paragraphs and table-cell text only. Images, headers, footers, comments, and formatting are not imported. Review the text before saving.']}
+        raise DocumentError(
+            'No readable text was found. Image-only Word documents need OCR or pasted text.'
+        )
+
+    result = {
+        'text': text,
+        'page_count': None,
+        'warnings': [
+            'Imported body paragraphs and table-cell text only. Images, headers, '
+            'footers, comments, and formatting are not imported. Review the text '
+            'before saving.'
+        ],
+    }
+    if include_sections:
+        result['sections'] = sections
+    return result
 
 
-def extract(data, suffix):
+def extract(data, suffix, *, include_pages=False):
     if not data or len(data) > MAX_BYTES:
         raise DocumentError('Choose a non-empty document no larger than 2 MB.')
-    if suffix == '.pdf':
-        return pdf_text(data)
-    if suffix == '.docx':
-        return docx_text(data)
-    raise DocumentError('Use a .pdf or .docx file. Old .doc files are not supported.')
 
+    if suffix == '.pdf':
+        return pdf_text(data, include_pages=include_pages)
+
+    if suffix == '.docx':
+        result = docx_text(data, include_sections=include_pages)
+        if include_pages:
+            result['pages'] = [{
+                "page": None,
+                "text": result['text'],
+                "sections": result.pop('sections'),
+            }]
+        return result
+
+    raise DocumentError('Use a .pdf or .docx file. Old .doc files are not supported.')
 
 def main():
     try:
