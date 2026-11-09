@@ -3,7 +3,6 @@ import io
 import json
 import re
 import sys
-from unittest import result
 import zipfile
 
 MAX_TEXT = 18000

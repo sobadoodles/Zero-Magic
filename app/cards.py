@@ -83,8 +83,6 @@ def update_card(card_id: int, payload: CardUpdate):
 
 @router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
 @storage.synchronized
-@router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
-@storage.synchronized
 def delete_card(card_id: int):
     if card_id not in storage.cards:
         raise HTTPException(status_code=404, detail="Card not found")
