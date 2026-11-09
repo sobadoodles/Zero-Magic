@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Zero Magic — Board</title>
-  <link rel="stylesheet" href="/static/styles.css?v=board-docs-2">
+  <link rel="stylesheet" href="/static/styles.css?v=agent-1">
   <script defer src="/static/vendor/marked.umd.js"></script>
   <script defer src="/static/vendor/purify.min.js"></script>
-  <script defer src="/static/app.js?v=board-docs-2"></script>
+  <script defer src="/static/app.js?v=agent-1"></script>
 </head>
 <body>
 <section id="auth-screen" class="auth-screen" aria-labelledby="auth-heading" hidden>
@@ -52,11 +52,11 @@
 
 <dialog id="assistant-dialog" class="assistant-panel" aria-labelledby="assistant-heading">
   <header class="dialog-header"><div><p class="eyebrow">Think it through</p><h2 id="assistant-heading">Your planning partner.</h2></div><button class="icon-button" data-close aria-label="Close assistant">×</button></header>
-  <p class="assistant-notice">Discuss first. Preview cards, approve creation, then separately approve assignments.</p>
+  <p class="assistant-notice">Discuss first. Agent mode lets the assistant search cards, read, ask your documents, and stage card creations, stage moves, and comments — every change waits for your approval.</p>
   <div class="brief-bar"><div><span class="field-label">Project brief</span><span id="selected-brief">No brief selected · chat works without one</span></div><div class="brief-actions"><button id="brief-open" type="button">Add brief</button><button id="brief-detach" type="button" hidden aria-label="Remove brief from this conversation">×</button></div></div>
   <label for="chat-project">Planning project</label><select id="chat-project"><option value="">Ungrouped</option></select><p class="muted small">New AI cards inherit this project. A selected brief sets its own project. To request deletion, type: delete project Exact name</p><div id="chat-history" class="chat-history" role="log" aria-live="polite" aria-label="Planning conversation"><div class="chat-welcome"><span class="sparkle" aria-hidden="true">✧</span><h3>What are you thinking of building?</h3><p>Describe an idea, a change of direction, or something that feels too big. We’ll break it down together.</p></div></div>
   <section id="proposal-panel" class="proposal-panel" hidden aria-label="Review proposed changes"></section>
-  <p id="chat-message" class="feedback" role="status"></p><form id="chat-form"><label for="chat-input" class="sr-only">Your message</label><textarea id="chat-input" rows="3" maxlength="6000" required placeholder="I’d like to add…"></textarea><div class="chat-actions"><div class="assistant-tools"><button type="button" id="preview-plan">Preview cards</button><button type="button" id="suggest-assignments" hidden>Suggest assignments</button><button type="button" id="use-knowledge" aria-pressed="false">📚 Library off</button><button type="button" id="clear-chat" class="button-quiet">New conversation</button></div><button class="button-primary" type="submit">Send ↗</button></div></form><p class="muted small">Approvals apply only the displayed preview. Conversation stays in this tab until reload. Workspace context is sent to Groq.</p>
+  <p id="chat-message" class="feedback" role="status"></p><form id="chat-form"><label for="chat-input" class="sr-only">Your message</label><textarea id="chat-input" rows="3" maxlength="6000" required placeholder="I’d like to add…"></textarea><div class="chat-actions"><div class="assistant-tools"><button type="button" id="preview-plan">Preview cards</button><button type="button" id="suggest-assignments" hidden>Suggest assignments</button><button type="button" id="use-knowledge" aria-pressed="false">📚 Library off</button><button type="button" id="use-agent" aria-pressed="false">🤖 Agent off</button><button type="button" id="clear-chat" class="button-quiet">New conversation</button></div><button class="button-primary" type="submit">Send ↗</button></div></form><p class="muted small">Approvals apply only the displayed preview. Conversation stays in this tab until reload. Workspace context is sent to Groq.</p>
 </dialog>
 <dialog id="thread-dialog" class="thread-panel" aria-labelledby="thread-title">
   <header class="dialog-header"><div><p class="eyebrow" id="thread-reference">Card discussion</p><h2 id="thread-title">Discussion</h2></div><button class="icon-button" data-close aria-label="Close discussion">×</button></header>

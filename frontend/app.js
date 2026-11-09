@@ -2,7 +2,7 @@
 const $ = selector => document.querySelector(selector);
 const STAGES = ["Spec", "Ready", "Building", "Checks", "Validation", "Done"];
 const MOVES = {Spec:["Ready"], Ready:["Building"], Building:["Checks"], Checks:["Validation","Building"], Validation:["Done","Building"], Done:[]};
-const state = {projects:[], chatProjectId:null, projectEdit:null, deletion:null, cards:[], people:[], peopleReady:false, selected:null, opener:null, detailsVersion:0, loadVersion:0, history:[], chatBusy:false, personEdit:null, chatId:crypto.randomUUID(), proposal:null, lastCreated:[], threadId:null, threadVersion:0, threadBusy:false, selectedPRD:null, briefEdit:null, briefs:[], briefSource:"Pasted brief", authEpoch:0, user:null, authMode:"login", inviteToken:null, useKnowledge:false, knowledgeDocs:[], knowledgePending:[], knowledgeBusy:false};
+const state = {projects:[], chatProjectId:null, projectEdit:null, deletion:null, cards:[], people:[], peopleReady:false, selected:null, opener:null, detailsVersion:0, loadVersion:0, history:[], chatBusy:false, personEdit:null, chatId:crypto.randomUUID(), proposal:null, lastCreated:[], threadId:null, threadVersion:0, threadBusy:false, selectedPRD:null, briefEdit:null, briefs:[], briefSource:"Pasted brief", authEpoch:0, user:null, authMode:"login", inviteToken:null, useKnowledge:false, useAgent:false, knowledgeDocs:[], knowledgePending:[], knowledgeBusy:false};
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -460,7 +460,8 @@ function drawChat() {
 }
 function setChatBusy(busy) {
   state.chatBusy=busy;
-  for(const selector of ["#chat-form [type=submit]","#clear-chat","#preview-plan","#suggest-assignments","#use-knowledge","#chat-input","#brief-open","#brief-detach","#chat-project"])$(selector).disabled=busy;
+  for(const selector of ["#chat-form [type=submit]","#clear-chat","#preview-plan","#suggest-assignments","#use-knowledge","#use-agent","#chat-input","#brief-open","#brief-detach","#chat-project"])$(selector).disabled=busy;
+  if(!busy)$("#use-knowledge").disabled=state.useAgent;  // keep it off while the agent owns document reads
   $("#proposal-panel").querySelectorAll("button").forEach(b=>{b.disabled=busy;});
 }
 async function chatAction(work) {
@@ -474,11 +475,23 @@ function renderProposal() {
   const panel=$("#proposal-panel");panel.replaceChildren();panel.hidden=!state.proposal;
   if(!state.proposal)return;
   const p=state.proposal;
-  panel.append(node("p","eyebrow",p.kind==="cards" ? "1 · Review cards before creating" : "2 · Review assignments before applying"));
+  const eyebrow = p.kind==="cards" ? "1 · Review cards before creating"
+                 : p.kind==="actions" ? "Review these changes before applying"
+                 : "2 · Review assignments before applying";
+  panel.append(node("p","eyebrow",eyebrow));
   if(p.data.prd)panel.append(node("p","proposal-source",`From ${p.data.prd.title} · revision ${p.data.prd.revision}`));
   if(p.kind==="cards")panel.append(projectBadge(p.data.project_id));
   const list=node("div","proposal-items");
-  if(p.kind==="cards") {
+  if(p.kind==="actions") {
+    for(const op of p.data.operations) {
+      const row=node("article","proposed-assignment");
+      const pv=op.preview||{};
+      if(op.tool==="create_card"){const w=pv.will_create||{};row.append(node("strong","","Create card"),node("p","",w.title||""),node("p","muted small",(w.acceptance_criteria||[]).length+" acceptance criteria · starts in Spec"));}
+      else if(op.tool==="move_card"){const w=pv.will_move||{};row.append(node("strong","",`Move: ${w.title||("card #"+w.card_id)}`),node("span","assignment-choice",`${w.from} → ${w.to}`));}
+      else if(op.tool==="add_comment"){const w=pv.will_comment||{};row.append(node("strong","",`Comment on ${w.title||("card #"+w.card_id)}`),node("p","muted small",w.text||""));}
+      list.append(row);
+    }
+  } else if(p.kind==="cards") {
     for(const card of p.data.cards) {
       const item=node("details","proposed-card");
       const summary=node("summary","",card.title);
@@ -533,7 +546,11 @@ async function requestAssistant(content,mode="discuss",targets=[]) {
   try {
     const messages=state.history.map(({role,content})=>({role,content}));
     let result;
-    if(mode==="plan" && state.selectedPRD){
+    if(state.useAgent && mode==="discuss"){
+      result=await api("/api/v1/assistant/agent",json("POST",{
+        conversation_id:state.chatId,messages,project_id:state.chatProjectId,
+      }));
+    }else if(mode==="plan" && state.selectedPRD){
       if(messages.length>30 || messages.reduce((n,m)=>n+m.content.length,0)>18000)throw new Error("Start a new conversation for this brief; the breakdown discussion is too long.");
       result=await api(`/api/v1/prds/${state.selectedPRD.id}/breakdown`,json("POST",{
         conversation_id:state.chatId,expected_revision:state.selectedPRD.revision,messages,
@@ -943,6 +960,15 @@ $("#use-knowledge").addEventListener("click",event=>{
   event.currentTarget.setAttribute("aria-pressed",String(state.useKnowledge));
   event.currentTarget.classList.toggle("toggle-active",state.useKnowledge);
   notify("#chat-message",state.useKnowledge ? "Answers may quote saved passages with [K1]-style citations when they match your question. Passages are untrusted text; approvals stay separate." : "Knowledge passages off. Plain conversation.");
+});
+$("#use-agent").addEventListener("click",event=>{
+  state.useAgent=!state.useAgent;
+  event.currentTarget.textContent=state.useAgent ? "🤖 Agent on" : "🤖 Agent off";
+  event.currentTarget.setAttribute("aria-pressed",String(state.useAgent));
+  event.currentTarget.classList.toggle("toggle-active",state.useAgent);
+  $("#use-knowledge").disabled=state.useAgent;  // agent reads documents through its own tool
+  if(state.useAgent)$("#use-knowledge").classList.remove("toggle-active");
+  notify("#chat-message",state.useAgent ? "Agent mode: normal messages go through tools. It can search cards, read, and ask documents immediately; creating, moving, or commenting only ever stage a preview for your approval — never an automatic change." : "Agent mode off. Back to planning chat.");
 });
 async function start() {
   const token=new URLSearchParams(location.hash.slice(1)).get("invite");

@@ -90,6 +90,80 @@ class StructuredOutputError(Exception):
     """Provider answered, but no model produced a validated breakdown."""
 
 
+def ask_model_tools(messages, tools):
+    """One tool-capable completion, same fallback chain as ask_model.
+
+    Returns {message, model, tool_calls:[{id,name,arguments}], finish_reason}.
+    Mid-conversation failure raises: replaying another model's tool_call ids is
+    not safe, so the caller retries the WHOLE turn instead.
+    """
+    api_key = os.getenv("GROQ_API_KEY")
+    models = [
+        name.strip()
+        for name in os.getenv("MODELS", "").split(",")
+        if name.strip()
+    ]
+    if not api_key or not models:
+        raise ModelUnavailableError("Model service is not configured.")
+
+    client = OpenAI(
+        base_url="https://api.groq.com/openai/v1",
+        api_key=api_key,
+        timeout=30.0,
+        max_retries=0,
+    )
+    try:
+        for model in models:
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    tools=tools,
+                    temperature=0.2,
+                    max_tokens=1500,
+                )
+            except APIConnectionError:
+                continue
+            except APIStatusError as error:
+                if (
+                    error.status_code in {404, 408, 429}
+                    or error.status_code >= 500
+                ):
+                    continue
+                raise ModelUnavailableError(
+                    "Model request was rejected. "
+                    "Check the server's provider configuration."
+                ) from None
+
+            if not response.choices:
+                continue
+            choice = response.choices[0]
+            if choice.finish_reason == "length":
+                continue
+            calls = []
+            for call in (choice.message.tool_calls or []):
+                calls.append({"id": call.id, "name": call.function.name,
+                              "arguments": call.function.arguments})
+            if response.usage:
+                print(
+                    f"Model: {model} | Input tokens: {response.usage.prompt_tokens} | "
+                    f"Output tokens: {response.usage.completion_tokens} | "
+                    f"tool_calls: {len(calls)}"
+                )
+            return {
+                "message": choice.message.content or "",
+                "model": model,
+                "tool_calls": calls,
+                "finish_reason": choice.finish_reason or "stop",
+            }
+    finally:
+        client.close()
+
+    raise ModelUnavailableError(
+        "No configured model succeeded. Please try again later."
+    )
+
+
 def ask_structured(messages, response_model):
     """Instructor validates/reasks (2 attempts/model), then the second model.
 
