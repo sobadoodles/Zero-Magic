@@ -59,12 +59,14 @@ def test_word_chunks_keep_section_headings():
             "page": None,
             "heading": "Goal",
             "text": "Build a board.",
+            "text_normalized": "Build a board.",
         },
         {
             "source": "brief.docx",
             "page": None,
             "heading": "Rules",
             "text": "Reject blank titles.",
+            "text_normalized": "Reject blank titles.",
         },
     ]
 
@@ -87,6 +89,7 @@ def test_heading_without_body_is_not_lost():
         "page": None,
         "heading": "Summary",
         "text": "Summary",
+        "text_normalized": "Summary",
     }]
 
 def test_search_normalizes_arabic_letters_and_digits():

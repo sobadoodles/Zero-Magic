@@ -4,10 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from app.semantic_search import save_index
-
-
-MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+from app.semantic_search import MODEL_NAME, save_index
 
 
 def create_index(chunks, output_path, model):

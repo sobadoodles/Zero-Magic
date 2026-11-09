@@ -2,6 +2,9 @@
 
 import math
 
+# One shared model for indexing and querying, so saved vectors always match.
+MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
 
 def cosine_similarity(first, second):
     """Measure how closely two vectors point in the same direction."""

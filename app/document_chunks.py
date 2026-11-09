@@ -48,7 +48,7 @@ def chunk_document(source_name, extracted):
 
     for page in extracted["pages"]:
         if "sections" not in page:
-            # PDFs currently provide page text without heading metadata.
+            # Pages without heading metadata (older/unsupported extraction).
             chunks.extend(
                 chunk_page(source_name, page["page"], page["text"])
             )
@@ -74,6 +74,11 @@ def chunk_document(source_name, extracted):
                 chunk["heading"] = heading
 
             chunks.extend(section_chunks)
+
+    # Store the original text plus a normalized companion: Persian forms of
+    # Arabic letters and digits, so retrieval works without rewriting the source.
+    for chunk in chunks:
+        chunk["text_normalized"] = normalize_for_search(chunk["text"])
 
     return chunks
 
