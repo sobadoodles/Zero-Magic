@@ -45,7 +45,7 @@ the live database is username `sabasadeghibigham` (admin), linked to person prof
 ```powershell
 # from C:\Zero Magic Project, with .venv active
 python -m uvicorn app.main:app --reload     # http://127.0.0.1:8000
-python -m pytest -q                          # full suite (242 tests, ~70s, no network)
+python -m pytest -q                          # full suite (254 tests, ~75s, no network)
 ```
 
 Config comes from `.env` (never committed): `GROQ_API_KEY` + `MODELS`
@@ -66,7 +66,8 @@ Config comes from `.env` (never committed): `GROQ_API_KEY` + `MODELS`
 | 3 | Oct 27 | `417e015` | **PRD feature**: saved briefs + immutable revisions, `instructor` structured breakdown, dependency DAG drafts, Building-prerequisite guard, generation rate limits |
 | 3→4 | Oct 27 | `63e5db5` | Large fix/feature commit: **projects + color labels + permanent project deletion** (`app/projects.py`), **PDF/Word document import** (`app/documents.py`, `app/document_worker.py`), restored stage updates, and **changed single-card deletion** to strip dependents' links instead of blocking |
 | 4 | Nov 4 | `ea97a1d` | **Chunking + keyword search**: `document_chunks.py`, `document_search.py`, `ingest_documents.py`, `search_documents.py`, **Persian/Arabic normalization**, page/section-preserving extraction (`include_pages`), invisible-character validation, plus many new tests |
-| 4→5 | Nov 9 | `feat/document-retrieval` branch (2 series of commits) | **Week-4 work committed**; then **retrieval integrated**: structured PDF ingestion (font-size headings, 3+ page header/footer removal), `text_normalized` per chunk, SQLite **knowledge library** (`app/knowledge.py`: save/list/fetch/delete/search/embed), `/documents/structure` review endpoint, **assistant RAG** (`use_knowledge` + `[K1]` citations), Documents dialog + Library toggle in the frontend, `scripts/import_chunks.py`, 24 new tests. Housekeeping fixed: duplicate DELETE route, dead import, duplicated test, junk files. Then **document QA deliverable**: `scripts/answer_questions.py` (grounded CLI answers with per-claim citations, keyword-vs-semantic comparison, failure-collection artifacts, `--no-answering` free mode), `eval/questions.json` (7 gold questions incl. a Persian probe + an expected-miss probe), spec + guide, 19 more tests (**242 total**) |
+| 4→5 | Nov 9 | `feat/document-retrieval` branch (2 series of commits) | **Week-4 work committed**; then **retrieval integrated**: structured PDF ingestion (font-size headings, 3+ page header/footer removal), `text_normalized` per chunk, SQLite **knowledge library** (`app/knowledge.py`: save/list/fetch/delete/search/embed), `/documents/structure` review endpoint, **assistant RAG** (`use_knowledge` + `[K1]` citations), Documents dialog + Library toggle in the frontend, `scripts/import_chunks.py`, 24 new tests. Housekeeping fixed: duplicate DELETE route, dead import, duplicated test, junk files. Then **document QA deliverable**: `scripts/answer_questions.py` (grounded CLI answers with per-claim citations, keyword-vs-semantic comparison, failure-collection artifacts, `--no-answering` free mode), `eval/questions.json` (7 gold questions incl. a Persian probe + an expected-miss probe), spec + guide, 19 more tests (242 total) |
+| 6 | Nov 9 | same branch | **Board documents slice** (checklist: "attach, ask, cite"): `app/document_qa.py` shared grounded-answer core; `doc_files.project_id` + `status`; `PUT /knowledge/{source}` re-attach; board-scoped retrieval (`allowed_sources` = own + workspace-wide) incl. chat RAG; `POST /projects/{id}/ask` + `POST /knowledge/ask` with document/page/quote citations; PRD breakdown numbers brief passages (`P1..P40`) and each `CardDraft` cites `source_passages` (invented ids → 502; confirm stores per-card quotes); frontend attach select, board badges, passage lines in proposals + card details. +12 tests (**254 total**) |
 
 Current branch: `feat/document-retrieval` (off `feat/document-import`; branches also exist for
 `master`, `feat/create-card`, `feat/prd-breakdown`; remote mirrors the older ones).
@@ -124,15 +125,16 @@ Transactional **SQLite snapshot** pattern:
 | `schemas.py` | `NonBlankText` (strip + must contain a *visible printable* char), Card/Comment models, `CardStage` enum |
 | `assistant.py` | Chat + plan/assign modes, immutable proposals, confirm/cancel, receipts, context fingerprinting, prompt-injection defense |
 | `llm.py` | Groq via OpenAI SDK: `ask_model` (fallback chain, JSON mode) + `ask_structured` (Instructor, ≤2 models, ≤2 validation attempts/model, reask on invalid) |
-| `prds.py` | Saved briefs CRUD + revisions, breakdown endpoint with reservations/rate limit, project inheritance |
+| `prds.py` | Saved briefs CRUD + revisions, breakdown endpoint with reservations/rate limit, project inheritance, numbered brief passages + card citation validation |
 | `prd_schemas.py` | `PRDInput`, `CardDraft` (draft-local keys), `Breakdown` with full DAG validation (cycles, self-deps, unknown keys, dup titles/keys, size caps) |
-| `projects.py` | Project labels, permissions, deletion-preview tokens, snapshot-checked idempotent cascade delete, `purge_proposals()` |
+| `projects.py` | Project labels, permissions, deletion-preview tokens, snapshot-checked idempotent cascade delete, `purge_proposals()`, board-scoped `/ask` route |
 | `documents.py` | `/documents/extract` + `/documents/structure` HTTP boundaries: streamed size checks, type/encoding validation, per-account 3/min throttle, 2 worker slots, env-stripped subprocess |
 | `document_worker.py` | Child-process PDF/DOCX text extraction with hard limits; page labels; heading/section capture; **structured mode** reads font-size + y-position lines for PDF headings and repeated margin headers/footers; warnings; never persists bytes |
 | `document_chunks.py` | Chunk extracted text into labeled `{source,page,heading,text,text_normalized}` units; **Persian normalization** (`normalize_for_search`) stored alongside original |
 | `document_search.py` | Keyword set-intersection ranking over chunks (half-space-aware tokenizer) |
 | `semantic_search.py` | Cosine similarity ranking, JSON vector index save/load, shared `MODEL_NAME` (committed) |
-| `knowledge.py` | **Document knowledge library** (new): stored reviewed passages in SQLite (`doc_files`/`doc_chunks` snapshots + `doc_vectors` table), save/replace with size caps, keyword+optional-semantic retrieval, lazy fastembed, assistant citation helper; all routes login-gated |
+| `knowledge.py` | **Document knowledge library**: stored reviewed passages in SQLite (`doc_files`/`doc_chunks` snapshots + `doc_vectors` table), save/replace with size caps + board (`project_id`/`status`) attachment, re-attach, keyword+optional-semantic retrieval with board scoping, lazy fastembed (single-flight), grounded `/ask`; all routes login-gated |
+| `document_qa.py` | **Strict grounded answering core** (shared by CLI + `/ask`): `[K#]` passage labelling, untrusted-data prompt, `GroundedAnswer` contract (cite-when-found / plain-statement-not-found), application-answered empty retrieval (no model call), citation→document/page/quote mapping |
 
 ### 3.4 Complete API surface (44 operations, all `/api/v1/*` require login except auth)
 
@@ -152,12 +154,13 @@ Transactional **SQLite snapshot** pattern:
 
 **Documents** — `POST /documents/extract` · `POST /documents/structure`
 
-**Knowledge library** — `GET/POST /knowledge` · `GET/DELETE /knowledge/{source}` ·
-`POST /knowledge/search` · `POST /knowledge/embed`
+**Knowledge library** — `GET/POST /knowledge` · `GET/PUT/DELETE /knowledge/{source}` ·
+`POST /knowledge/search` · `POST /knowledge/ask` · `POST /knowledge/embed`
 
 **Projects** — `GET/POST /projects` · `PUT /projects/{id}` ·
 `POST /projects/{id}/deletion-preview` · `POST /projects/deletions/{token}/confirm` ·
-`POST /projects/deletions/{token}/cancel` *(no direct `DELETE /projects/{id}` — 405 by design)*
+`POST /projects/deletions/{token}/cancel` · `POST /projects/{id}/ask` ·
+*(no direct `DELETE /projects/{id}` — 405 by design)*
 
 Also: `GET /health`, `GET /` (app), `/docs` Swagger UI.
 
@@ -492,6 +495,41 @@ knowledge library.
   — the comparison the exercise asked for. The 7th question (`q_email_provider`) correctly
   records zero failures as a no-gold probe.
 
+### 4.15 Board documents, grounded ask API, and cited breakdowns (Week 6 slice — same branch)
+
+Closes the "document knowledge base for the board" checklist (spec:
+`docs/specs/board-documents.md`). "Board" maps to **Project** in this single-board app.
+
+- **`app/document_qa.py` (new, 18th module)**: the strict grounded-answer core —
+  `GroundedAnswer` contract, `label_passages` `[K1..n]`, the QA prompt, and
+  `answer_from_passages()` returning `{found, answer, citations:[{id, document, page,
+  heading, quote}], model}` or `{skipped}`. Empty retrieval is answered by the
+  application itself ("The documents do not contain the answer…") **without calling any
+  model**; unknown citation ids are dropped server-side. The CLI now imports this core
+  (single contract shared by CLI + API).
+- **Documents attach to boards**: `DocumentInput.project_id` (validated like cards/briefs);
+  `doc_files` records gain `project_id` + `status:"ready"` (older rows read via `.get()`).
+  `PUT /api/v1/knowledge/{source}` re-attaches or detaches (importer/owner only).
+  The Documents dialog gained an **Attach to project** select; rows show the board badge.
+- **Scoped retrieval**: `allowed_sources(project_id)` = that board's docs **plus**
+  workspace-wide (`project_id: null`) ones; applied to keyword, semantic (vectors
+  included), and chat RAG — `assistant.chat` now retrieves with the conversation's
+  project. Verified by tests: orchid passages never leak into atlas's block.
+- **Ask endpoints**: `POST /api/v1/projects/{id}/ask` (board-scoped) and
+  `POST /api/v1/knowledge/ask` (optional `project_id`) — `{question, mode, limit}` →
+  grounded answer + `passages_consulted` + document/page/quote citations; 404 unknown
+  board, 422 bad payload, 503 on provider failure.
+- **Cited breakdowns**: `prds.breakdown` splits the brief into numbered passages
+  (`chunk_page`, now applying its label splitter to page-less text too — Word bodies and
+  briefs gain clause-level splits) and gives the model `P1..P40`; `CardDraft.source_passages`
+  (unique, ≤6, pattern-checked); invented passage ids → **502, no preview**; confirm
+  stores per-card `source_passages:[{id, quote≤200}]` beside `source_prd_id/revision`.
+  Old drafts without the field still confirm (cards get `[]`). The full brief `content`
+  is no longer dumped into the model message — the numbered passages replace it.
+- Frontend: proposal cards show "From brief passages: P1 · P3"; card details show a
+  **"From the brief · source passages"** block with each quoted passage.
+- API surface now **47 operations**; tests **254**.
+
 ---
 
 ## 5. Security model (as implemented)
@@ -515,7 +553,7 @@ knowledge library.
 
 ---
 
-## 6. Tests — full inventory (242 passing, verified 2026-11-09 on `feat/document-retrieval`, ~70s, zero network)
+## 6. Tests — full inventory (254 passing, verified 2026-11-09 on `feat/document-retrieval`, ~75s, zero network)
 
 `tests/conftest.py` sets `ZERO_MAGIC_DB` to a temp dir **before** any app import (and refuses
 to run if the app was imported first), so the real workspace DB is never touched. All AI
@@ -525,7 +563,7 @@ calls are mocked or served through `httpx.MockTransport`; no Groq tokens are con
 |---|---|---|
 | `test_persistent_workspace.py` | 27 | 401s for private reads/writes; one-time owner setup; scrypt hash format + session-hash storage; cookie attributes + logout revocation; generic wrong-password; expired sessions; 20/15min throttle; invite once/regenerate/expire; owner-vs-member permissions (403s); **server-controlled comment identity + spoof 422**; CSRF trio (origin/sec-fetch/content-type); trusted-host 400; CRUD rules incl. null-title 422 + stage 409; preview-no-write-until-approved + separate assignment approval + idempotent replay; account-bound proposals; stale preview; **disk-failure rollback** (memory+DB restored, receipt stays pending); concurrent confirm; **real subprocess restart** preserving data+session+receipt+ID counters; deleted-ID non-reuse; existing-profile→owner; legacy import (empty-DB-only refusal) + SQLite backup integrity |
 | `test_assistant_actions.py` | 29 | discuss never writes; preview read-only; confirm/replay idempotence; explicit-approval 422s; wrong-conversation 404; expiry 410; board/team drift 409s; superseded/cancelled previews; invalid/malformed model output 502s; second approval for assignments; hallucinated person / wrong target 502; empty-team no-model-call; overwritten assignment not clobbered; card & assignment batch rollback (injected failures); concurrent approvals via independent clients; injected card text can't trigger writes; provider 503; signed-in comment authoring + forged `author_id` 422 + unknown author 422; clarification passthrough; duplicate-title 409 |
-| `test_prds.py` | 31 | auth gates; content bounds (blank/short/18001); list summary hides content; revisions immutable + stale PUT 409; member 403 on others' brief; forward-reference key resolution + `source_prd_*` stamps; Ready-allowed/Building-blocked + `depends_on` not client-settable; brief edit invalidates preview (409, zero cards); mid-generation brief/board edits 409; clarification creates nothing; 502/503 leave no cards **and release the reservation**; persistent 3/min + 1 in-flight; brief-in-discussion is context-only + revision mismatch 409; 10 parametrized DAG/shape validation failures; **prompt-injected brief text cannot force writes/assignments**; restart survives deps+receipts (subprocess); Instructor re-ask flow (exactly 2 fake HTTP calls); model fallback ordering `first,first,second`; provider 429 fallback capped at ≤4 calls on 2 models |
+| `test_prds.py` | 35 | auth gates; content bounds (blank/short/18001); list summary hides content; revisions immutable + stale PUT 409; member 403 on others' brief; forward-reference key resolution + `source_prd_*` stamps; Ready-allowed/Building-blocked + `depends_on` not client-settable; brief edit invalidates preview (409, zero cards); mid-generation brief/board edits 409; clarification creates nothing; 502/503 leave no cards **and release the reservation**; persistent 3/min + 1 in-flight; brief-in-discussion is context-only + revision mismatch 409; 10 parametrized DAG/shape validation failures; **prompt-injected brief text cannot force writes/assignments**; restart survives deps+receipts (subprocess); Instructor re-ask flow (exactly 2 fake HTTP calls); model fallback ordering `first,first,second`; provider 429 fallback capped at ≤4 calls on 2 models; **Week-5 board-docs**: breakdown numbers brief passages (P1…Pn) and cards cite them with stored quotes; invented passage ids → 502 with zero writes; legacy briefs still confirm; duplicate passage ids rejected by schema |
 | `test_documents.py` | 36 | real synthetic PDFs/DOCX via subprocess pipeline; review-only guarantees (no writes); DOCX table text + case-insensitive ext + explicit save path; 10-case failure matrix (invalid magic, broken PDF, OCR-needed, encrypted, 51 pages, .doc, non-zip, macros, wrong ext, empty b64) with message fragments + zero writes; short-text editable; >18k never truncated; XML entity rejection; `w:del` excluded; zip-bomb; auth/origin/content-type; bad base64; path traversal filename; MAX_BODY 413; 3/min throttle; timeout handling + **semaphore release**; busy-worker 429; child env excludes `GROQ_API_KEY` and uses `-E -P`; Persian half-space/NBSP preserved; per-page PDF extraction; DOCX null-page honesty; chunking bridges; **folder→chunks CLI subprocess test**; heading-structure sections; null-character corruption warning |
 | `test_projects.py` | 21 | create/rename/case-insensitive dup 409; injection-style color 422; existing cards Ungrouped + relabel + ungroup (card_count); unknown project 404 on cards & briefs; card delete SQL-verified; **prerequisite delete strips links** (the `63e5db5` behavior); full cascade incl. brief revisions with other-project preservation + wrong-name 422 + idempotent receipt; preview invalidated by new comment; other-project edits don't block; cross-project dependency 409 at preview; external source-brief 409; expiry 410 + no direct DELETE (405); unauthenticated 401 + cross-origin 403; member 403s + account-bound confirm 404 + member deletes own; chat drafts force server project (model's `project_id` ignored); PRD drafts inherit brief project; deleted project kills old creation previews 404; card delete purges delete-previews; flush-failure atomic rollback (memory+DB); restart subprocess label/deletion survival; project-scoped model context; cancel revokes token |
 | `test_cards.py` | 26 | full CRUD contract; whitespace trim; server-controlled create fields; partial update keeps goal; null-title 422 with value kept; every legal/illegal stage move incl. skip attempts, send-back paths, terminal Done; unknown stage 422; 404s; comments add/list/order/trim/author-from-session; invisible-`\u200b`/`\u200c` rejection for card title, comment text, person name |
@@ -535,7 +573,7 @@ calls are mocked or served through `httpx.MockTransport`; no Groq tokens are con
 | `test_document_search.py` | 3 | relevance ordering; Persian-form query matches Arabic-form text (display text untouched); **CLI output test** (source/page/text shown) |
 | `test_document_qa.py` | 19 | **Week 5**: strict `GroundedAnswer` contract (cite-when-found, plain not-found); gold resolution incl. Persian forms; the whole failure taxonomy (retrieval miss / gold-missing-from-library / hallucinated id / uncited / retrieved-but-ignored / unsupported-citation / answered-unanswerable); mode comparison (overlap, semantic-only-gold, unavailable mode); orchestrator + `failures.md` rendering; `eval/questions.json` loads; real CLI subprocess run retrieval-only on a fresh imported DB |
 | `test_semantic_search.py` | 4 | rank by cosine; save→load→search round trip; `create_index` with fake model keeps labels + model name; `search_index` embeds question (iterator) and ranks |
-| `test_knowledge.py` | 24 | **Week 5**: PDF font-size heading detection + 3-page header/footer removal; no-structure fallback claim; structure route review-only (zero writes) + auth; save with server-side normalization; payload rejections; 409 duplicate/replace semantics; library caps (monkeypatched); list/fetch/404; delete permissions + vector cleanup in one transaction; keyword ranking/limit/Persian-Arabic query linking; semantic without vectors 409; fake-model embed (missing→all, idempotent second run, force, similarity search, listed counts); embed busy 429; missing-fastembed 503; chat citations ([K1] block, response shape, toggle off, empty library, assign ignores); injected "SYSTEM:" passage cannot trigger writes; `import_chunks` CLI subprocess (vectors + replace isolation); restart survival |
+| `test_knowledge.py` | 32 | **Week 5**: PDF font-size heading detection + 3-page header/footer removal; no-structure fallback claim; structure route review-only (zero writes) + auth; save with server-side normalization; payload rejections; 409 duplicate/replace semantics; library caps (monkeypatched); list/fetch/404; delete permissions + vector cleanup in one transaction; keyword ranking/limit/Persian-Arabic query linking; semantic without vectors 409; fake-model embed (missing→all, idempotent second run, force, similarity search, listed counts); embed busy 429; missing-fastembed 503; chat citations ([K1] block, response shape, toggle off, empty library, assign ignores); injected "SYSTEM:" passage cannot trigger writes; `import_chunks` CLI subprocess (vectors + replace isolation); restart survival. **Week-6 board-docs**: attach on save (project validated, `status:ready`, unknown→404); re-attach/`PUT` move + 403 for non-importer; board scope filters retrieval (own + workspace-wide, not other boards); ask with no matching passage never calls the model and says not-found; cited `[K1]` answer with document/page/quote; provider failure→503; ask payload validation (blank/oversize/extra); `/projects/{id}/ask` board route + 404; chat knowledge respects the board |
 
 Beyond the suite, `docs/specs/review-checklist.md` documents their review discipline:
 scope match, no duplicated setup, input validation, proper errors, success+failure tests,
@@ -565,12 +603,13 @@ no secrets committed, documented limitations.
 - **Root guides**: `START-HERE.md` (auth+SQLite install), `SETUP.md` (assistant actions),
   `PRD-UPDATE.md`, `DOCUMENT-IMPORT.md`, `PROJECTS-UPDATE.md`, **`DOCUMENT-RETRIEVAL.md`**
   (Week-5 install/run), **`DOCUMENT-QA.md`** (grounded CLI answers + failures),
+  **`BOARD-DOCUMENTS.md`** (attach/ask/cite tour),
   `architecture.md` (Week 1–2, now partly historical),
   `PROJECT-KNOWLEDGE.md` (this file), `testing.py` (git test).
-- **`docs/specs/`**: 9 specs — `create-card`, `comments`, `assistant-actions`,
+- **`docs/specs/`**: 10 specs — `create-card`, `comments`, `assistant-actions`,
   `prd-breakdown`, `document-import`, `projects`, **`document-retrieval`**,
-  **`document-qa`**, `review-checklist`.
-- **`app/`**: 17 modules (§3.3, now incl. `knowledge.py`). **`tests/`**: 13 files + conftest (§6).
+  **`document-qa`**, **`board-documents`**, `review-checklist`.
+- **`app/`**: 18 modules (§3.3, incl. `knowledge.py` + `document_qa.py`). **`tests/`**: 13 files + conftest (§6).
 - **`frontend/`**: `index.html`, `app.js`, `styles.css`, `vendor/` (marked, purify + licenses).
 - **`scripts/`**: `export_old_workspace.py` (legacy in-memory era), `import_workspace.py`
   (empty-DB legacy import), `backup_database.py` (SQLite backup API), `reset_password.py`,

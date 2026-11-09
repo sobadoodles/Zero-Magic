@@ -228,6 +228,11 @@ function renderFields(card) {
     if(card.source_prd_id)block.append(node("p","muted small",`From project brief · revision ${card.source_prd_revision}`));
     fields.append(block);
   }
+  if(card.source_passages?.length){
+    const block=node("div","card-dependencies");block.append(node("span","field-label","From the brief · source passages"));
+    for(const passage of card.source_passages)block.append(node("p","passage-quote",`${passage.id} · “${passage.quote}”`));
+    fields.append(block);
+  }
 }
 function renderStage(card) {
   const select = $("#stage-select"); select.replaceChildren(new Option(card.stage,card.stage));
@@ -480,6 +485,7 @@ function renderProposal() {
       if(card.key){
         const names=(card.depends_on || []).map(key=>p.data.cards.find(c=>c.key===key)?.title || key);
         summary.append(node("span","draft-dependency",names.length ? "After: "+names.join(" · ") : "No prerequisites in this plan"));
+        if(card.source_passages?.length)summary.append(node("span","draft-dependency","From brief passages: "+card.source_passages.join(" · ")));
       }
       item.append(summary,node("p","",card.goal));
       const criteria=node("ul");for(const text of card.acceptance_criteria)criteria.append(node("li","",text));
@@ -823,7 +829,8 @@ function renderKnowledge(){
   for(const doc of state.knowledgeDocs){
     const row=node("div","knowledge-doc");
     const info=node("div","knowledge-doc-copy");
-    info.append(node("strong","",doc.source_name),node("p","",`${doc.chunk_count} passages · ${doc.page_count ? doc.page_count+" pages · " : ""}${doc.embedded_chunks}/${doc.chunk_count} embedded · ${doc.characters.toLocaleString()} characters`));
+    info.append(node("strong","",doc.source_name),node("p","",`${doc.chunk_count} passages · ${doc.page_count ? doc.page_count+" pages · " : ""}${doc.embedded_chunks}/${doc.chunk_count} embedded · ${doc.characters.toLocaleString()} characters · ${doc.status || "ready"}`));
+    if(doc.project_id)info.append(projectBadge(doc.project_id,false));
     row.append(info);
     if(knowledgeCanDelete(doc)){
       const remove=button("Remove","button-danger");remove.setAttribute("aria-label",`Remove ${doc.source_name}`);
@@ -892,10 +899,11 @@ $("#knowledge-files").addEventListener("change",async event=>{
 });
 $("#knowledge-save").addEventListener("click",event=>action(event.currentTarget,"#knowledge-message",async()=>{
   if(!state.knowledgePending.length)return;
+  const attachProject=$("#knowledge-project").value || null;
   const result=await api("/api/v1/knowledge",json("POST",{
     replace:$("#knowledge-replace").checked,
     documents:state.knowledgePending.map(doc=>({
-      source_name:doc.source_name,format:doc.format,page_count:doc.page_count,
+      source_name:doc.source_name,format:doc.format,page_count:doc.page_count,project_id:attachProject,
       chunks:doc.chunks.map(chunk=>({page:chunk.page,heading:chunk.heading,text:chunk.text})),
     })),
   }));
@@ -950,7 +958,7 @@ function projectBadge(id,interactive=false){
   return interactive ? button(p?.name || "Ungrouped",`project-label project-${p?.color || "none"}`) : node("span",`project-label project-${p?.color || "none"}`,p?.name || "Ungrouped");
 }
 function renderProjectOptions(){
-  for(const id of ["#project-filter","#create-project","#card-project","#chat-project","#brief-project"]){
+  for(const id of ["#project-filter","#create-project","#card-project","#chat-project","#brief-project","#knowledge-project"]){
     const select=$(id),previous=select.value;
     select.replaceChildren(new Option(id==="#project-filter" ? "All projects" : "Ungrouped",""));
     if(id==="#project-filter")select.add(new Option("Ungrouped","__none__"));

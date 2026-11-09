@@ -278,3 +278,53 @@ def test_provider_rate_limit_fallback_and_total_failure(monkeypatch):
         llm.ask_structured([{'role':'user','content':'Return JSON.'}],Breakdown)
     assert 'first' in seen and 'second' in seen and 'unused-third' not in seen
     assert len(seen)<=4
+
+
+# --- brief passage linking (cards cite the part of the PRD they came from) ----------
+
+def test_breakdown_numbers_passages_and_cards_cite_them(monkeypatch):
+    c=owner();doc=saved(c);seen=[]
+    def fake(messages,response_model):
+        seen.append(messages)
+        data=plan()
+        data['cards'][0]['source_passages']=['P1']
+        data['cards'][1]['source_passages']=['P1','P3']
+        return {'parsed':response_model.model_validate(data),'model':'simulated'}
+    monkeypatch.setattr(prds,'ask_structured',fake)
+    convo,r=draft(c,doc);assert r.status_code==200,r.text
+    proposal=r.json()['proposal']
+    passage_ids={p['id'] for p in proposal['data']['passages']}
+    assert 'P1' in passage_ids and 'P3' in passage_ids
+    source_block=[m for m in seen[0] if 'Source data' in m['content']][0]['content']
+    assert '"P1"' in source_block
+    assert any('source_passages' in m['content'] for m in seen[0] if m['role']=='system')
+    out=confirm(c,convo,proposal['id']);assert out.status_code==200,out.text
+    ui,api=out.json()['cards']
+    first_text=next(p['text'] for p in proposal['data']['passages'] if p['id']=='P1')
+    assert ui['source_passages']==[{'id':'P1','quote':first_text[:200]}]
+    assert {p['id'] for p in api['source_passages']}=={'P1','P3'}
+    assert ui['source_prd_id']==doc['id']  # whole-brief link stays beside the passage links
+
+
+def test_breakdown_rejects_invented_passage_ids(monkeypatch):
+    c=owner();doc=saved(c)
+    def fake(messages,response_model):
+        data=plan();data['cards'][0]['source_passages']=['P20']
+        return {'parsed':response_model.model_validate(data),'model':'simulated'}
+    monkeypatch.setattr(prds,'ask_structured',fake)
+    convo,r=draft(c,doc)
+    assert r.status_code==502 and 'passage' in r.json()['detail']
+    assert not storage.cards and not storage.proposals
+
+
+def test_legacy_breakdown_without_passages_still_confirms(monkeypatch):
+    c=owner();doc=saved(c);mock(monkeypatch)
+    convo,r=draft(c,doc);assert r.status_code==200,r.text
+    out=confirm(c,convo,r.json()['proposal']['id']);assert out.status_code==200,out.text
+    assert all(card['source_passages']==[] for card in out.json()['cards'])
+
+
+def test_duplicate_passage_ids_rejected_by_schema():
+    data=plan()
+    data['cards'][0]['source_passages']=['P1','P1']
+    with pytest.raises(ValidationError):Breakdown.model_validate(data)

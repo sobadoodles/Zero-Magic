@@ -19,7 +19,9 @@ from pypdf import PdfWriter
 from pypdf.generic import DictionaryObject, DecodedStreamObject, NameObject
 
 from app import assistant, documents, knowledge, storage
+from app.document_qa import GroundedAnswer
 from app.document_worker import extract
+from app.llm import ModelUnavailableError
 from app.main import app
 
 PASS = 'test-passphrase-12345'
@@ -102,14 +104,14 @@ def upload_structure(c, data, name='brief.pdf'):
         'filename': name, 'content_base64': base64.b64encode(data).decode()})
 
 
-def save_chunks(c, source='brief.pdf', chunks=None, replace=False, fmt='pdf', page_count=1):
+def save_chunks(c, source='brief.pdf', chunks=None, replace=False, fmt='pdf', page_count=1, project_id=None):
     chunks = chunks or [
         {'page': 1, 'heading': 'Rules', 'text': 'Reminder rule: send one day before the due date.'},
         {'page': 1, 'heading': 'Rules', 'text': 'Permission rule: only the owner can edit the time.'},
     ]
     return c.post('/api/v1/knowledge', json={
         'documents': [{'source_name': source, 'format': fmt,
-                       'page_count': page_count, 'chunks': chunks}],
+                       'page_count': page_count, 'project_id': project_id, 'chunks': chunks}],
         'replace': replace})
 
 
@@ -405,6 +407,136 @@ def test_assign_mode_ignores_knowledge(client, monkeypatch):
     assert response.json()['proposal'] is not None
     for messages in seen:
         assert not any('knowledge passages' in m['content'] for m in messages)
+
+
+# --- board (project) attachment, scoped retrieval, grounded ask -------------------
+
+def project(client, name='Atlas', color='blue'):
+    r = client.post('/api/v1/projects', json={'name': name, 'color': color})
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def test_save_validates_and_stores_project(client):
+    assert save_chunks(client, project_id=str(uuid4())).status_code == 404
+    assert not storage.doc_files
+    p = project(client)
+    saved = save_chunks(client, project_id=p['id'])
+    assert saved.status_code == 201, saved.text
+    record = storage.doc_files['brief.pdf']
+    assert record['project_id'] == p['id'] and record['status'] == 'ready'
+    listed = client.get('/api/v1/knowledge').json()['documents'][0]
+    assert listed['project_id'] == p['id'] and listed['status'] == 'ready'
+
+
+def test_attach_move_and_permissions(client):
+    p = project(client)
+    assert client.put('/api/v1/knowledge/missing.pdf', json={'project_id': None}).status_code == 404
+    save_chunks(client)
+    assert client.put('/api/v1/knowledge/brief.pdf', json={'project_id': str(uuid4())}).status_code == 404
+    moved = client.put('/api/v1/knowledge/brief.pdf', json={'project_id': p['id']})
+    assert moved.status_code == 200 and storage.doc_files['brief.pdf']['project_id'] == p['id']
+    assert client.put('/api/v1/knowledge/brief.pdf', json={'project_id': None}).json()['project_id'] is None
+    other = member(client)
+    assert other.put('/api/v1/knowledge/brief.pdf', json={'project_id': p['id']}).status_code == 403
+
+
+def test_board_scope_filters_retrieval(client):
+    atlas = project(client, 'Atlas')
+    orchid = project(client, 'Orchid', 'pink')
+    save_chunks(client, source='atlas.pdf', project_id=atlas['id'],
+                chunks=[{'page': 1, 'heading': None, 'text': 'Atlas reminder fires at nine.'}])
+    save_chunks(client, source='orchid.pdf', project_id=orchid['id'],
+                chunks=[{'page': 1, 'heading': None, 'text': 'Orchid reminder fires at nine.'}])
+    save_chunks(client, source='shared.pdf',
+                chunks=[{'page': 1, 'heading': None, 'text': 'Shared reminder fires at nine.'}])
+
+    hits = client.post('/api/v1/knowledge/search',
+                       json={'query': 'atlas orchid shared reminder', 'project_id': atlas['id']}).json()['results']
+    sources = {hit['source'] for hit in hits}
+    assert 'orchid.pdf' not in sources and 'atlas.pdf' in sources and 'shared.pdf' in sources
+    with storage.lock:
+        assert knowledge.allowed_sources(atlas['id']) == {'atlas.pdf', 'shared.pdf'}
+    assert client.post('/api/v1/knowledge/search',
+                       json={'query': 'reminder', 'project_id': str(uuid4())}).status_code == 404
+
+
+def test_ask_without_matching_passages_never_calls_model(client, monkeypatch):
+    save_chunks(client)
+    monkeypatch.setattr('app.document_qa.ask_structured', lambda *a, **k: pytest.fail('no model needed'))
+    response = client.post('/api/v1/knowledge/ask', json={'question': 'flux capacitor'})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body['found'] is False and body['model'] == 'application' and body['citations'] == []
+    assert 'do not contain' in body['answer'].lower()
+
+
+def test_ask_returns_cited_answer(client, monkeypatch):
+    save_chunks(client)
+
+    def fake(messages, response_model):
+        return {'model': 'sim', 'parsed': response_model.model_validate(
+            {'found': True, 'answer': 'It fires one day before the due date [K1].', 'citations': ['K1']})}
+    monkeypatch.setattr('app.document_qa.ask_structured', fake)
+    response = client.post('/api/v1/knowledge/ask', json={'question': 'reminder due date'})
+    assert response.status_code == 200, response.text
+    citation = response.json()['citations'][0]
+    assert citation['document'] == 'brief.pdf' and citation['page'] == 1
+    assert 'Reminder rule' in citation['quote']
+
+
+def test_ask_maps_provider_failure_to_503(client, monkeypatch):
+    save_chunks(client)
+
+    def boom(messages, response_model):
+        raise ModelUnavailableError('Unavailable')
+    monkeypatch.setattr('app.document_qa.ask_structured', boom)
+    assert client.post('/api/v1/knowledge/ask', json={'question': 'reminder'}).status_code == 503
+
+
+def test_ask_validation_and_board_route(client, monkeypatch):
+    atlas = project(client, 'Atlas')
+    save_chunks(client, project_id=atlas['id'],
+                chunks=[{'page': 2, 'heading': 'Rules', 'text': 'Reminder fires one day before.'}])
+    assert client.post('/api/v1/knowledge/ask', json={'question': '   '}).status_code == 422
+    assert client.post('/api/v1/knowledge/ask', json={'question': 'x' * 2001}).status_code == 422
+    assert client.post('/api/v1/knowledge/ask', json={'question': 'reminder', 'extra': 1}).status_code == 422
+    captured = []
+
+    def fake(messages, response_model):
+        captured.append(messages)
+        return {'model': 'sim', 'parsed': response_model.model_validate(
+            {'found': True, 'answer': 'One day before [K1].', 'citations': ['K1']})}
+    monkeypatch.setattr('app.document_qa.ask_structured', fake)
+    response = client.post(f"/api/v1/projects/{atlas['id']}/ask", json={'question': 'reminder'})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body['project']['name'] == 'Atlas' and body['passages_consulted'] == 1
+    assert body['citations'][0]['document'] == 'brief.pdf'
+    assert 'Rules' in captured[0][1]['content']  # heading travels with the passage
+    assert client.post(f"/api/v1/projects/{uuid4()}/ask", json={'question': 'reminder'}).status_code == 404
+
+
+def test_chat_knowledge_respects_board(client, monkeypatch):
+    atlas = project(client, 'Atlas')
+    orchid = project(client, 'Orchid', 'pink')
+    save_chunks(client, source='atlas.pdf', project_id=atlas['id'],
+                chunks=[{'page': 1, 'heading': None, 'text': 'Atlas uses blue banners.'}])
+    save_chunks(client, source='orchid.pdf', project_id=orchid['id'],
+                chunks=[{'page': 1, 'heading': None, 'text': 'Orchid uses pink banners.'}])
+    seen = []
+
+    def answer(messages, **kwargs):
+        seen.append(messages)
+        return {'message': 'Blue [K1].', 'model': 'simulated'}
+    monkeypatch.setattr(assistant, 'ask_model', answer)
+    response = client.post('/api/v1/assistant/chat', json={
+        'conversation_id': str(uuid4()), 'project_id': atlas['id'], 'use_knowledge': True,
+        'messages': [{'role': 'user', 'content': 'which banners'}]})
+    assert response.status_code == 200, response.text
+    block = [m for m in seen[0] if m['role'] == 'user' and m['content'].startswith('Workspace knowledge passages')]
+    assert 'atlas.pdf' in block[0]['content'] and 'orchid.pdf' not in block[0]['content']
+    assert response.json()['citations'][0]['source'] == 'atlas.pdf'
 
 
 # --- persistence -----------------------------------------------------------------

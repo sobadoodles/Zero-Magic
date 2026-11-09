@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Zero Magic — Board</title>
-  <link rel="stylesheet" href="/static/styles.css?v=knowledge-1">
+  <link rel="stylesheet" href="/static/styles.css?v=board-docs-1">
   <script defer src="/static/vendor/marked.umd.js"></script>
   <script defer src="/static/vendor/purify.min.js"></script>
-  <script defer src="/static/app.js?v=knowledge-1"></script>
+  <script defer src="/static/app.js?v=board-docs-1"></script>
 </head>
 <body>
 <section id="auth-screen" class="auth-screen" aria-labelledby="auth-heading" hidden>
@@ -97,7 +97,7 @@ What should we leave out?"></textarea><p id="brief-counter" class="muted small">
 <header class="dialog-header"><div><p class="eyebrow">Answer from what you already wrote</p><h2 id="knowledge-heading">Document library.</h2></div><button data-close class="icon-button" aria-label="Close documents">×</button></header>
 <p class="muted small">PDF and Word files are parsed into labelled passages (source · page · heading) that you review before saving. Original files are never stored. The Plan with AI chat can quote these passages when the 📚 Library toggle is on.</p>
 <p id="knowledge-message" class="feedback" role="status"></p>
-<div class="knowledge-import"><label class="file-button" for="knowledge-files">Extract file(s) for review</label><input id="knowledge-files" class="sr-only" type="file" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"><button type="button" id="knowledge-embed">Embed for semantic search</button></div>
+<div class="knowledge-import"><label class="file-button" for="knowledge-files">Extract file(s) for review</label><input id="knowledge-files" class="sr-only" type="file" multiple accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"><label class="sr-only" for="knowledge-project">Attach saved passages to a project board</label><select id="knowledge-project"><option value="">Workspace-wide</option></select><button type="button" id="knowledge-embed">Embed for semantic search</button></div>
 <div id="knowledge-pending" class="knowledge-pending" hidden></div>
 <div class="knowledge-savebar" id="knowledge-savebar" hidden><label class="replace-label"><input type="checkbox" id="knowledge-replace"> Replace same-named documents</label><button type="button" id="knowledge-save" class="button-primary">Add to library</button></div>
 <h3>Saved documents</h3>

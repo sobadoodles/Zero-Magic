@@ -156,3 +156,29 @@ def cancel_deletion(token:UUID,user=Depends(require_user)):
     if record['status']=='confirmed':raise HTTPException(409,'Deletion already completed; cancellation is not an undo.')
     del storage.proposals[str(token)]
     return {'status':'cancelled'}
+
+
+class ProjectAskInput(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    question: NonBlankText=Field(max_length=2000)
+    mode: str=Field(default='keyword', pattern='^(keyword|semantic)$')
+    limit: int=Field(default=5, ge=1, le=8, strict=True)
+
+
+@router.post('/{project_id}/ask')
+def ask_project(project_id:UUID, payload:ProjectAskInput):
+    """Answer from THIS board's documents (its attached files plus workspace-wide passages).
+
+    Same strict contract as /knowledge/ask: only retrieved passages, document/page/quote
+    citations, plain not-found statement, 503 when the model path fails. The project is
+    this application's board grouping.
+    """
+    from app import knowledge
+    from app.document_qa import answer_from_passages
+    ident = project_for(str(project_id))['id']
+    passages = knowledge.retrieve(payload.question, payload.limit, payload.mode, ident)
+    result = answer_from_passages(payload.question, passages)
+    if 'skipped' in result:
+        raise HTTPException(503, result['skipped'])
+    return {'question':payload.question, 'project':{'id':ident,'name':storage.projects[ident]['name']},
+            'mode':payload.mode, 'passages_consulted':len(passages), **result}

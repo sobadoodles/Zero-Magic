@@ -104,6 +104,8 @@ def main():
                 "source_name": name,
                 "format": suffix if suffix in ("pdf", "docx") else "pdf",
                 "page_count": max(pages) if pages else None,
+                "project_id": None,
+                "status": "ready",
                 "chunk_count": len(grouped[name]),
                 "characters": sum(len(c["text"]) for c in grouped[name]),
                 "ingested_by": ingested_by,

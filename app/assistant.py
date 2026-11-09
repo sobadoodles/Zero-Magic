@@ -216,7 +216,7 @@ def chat(payload: ChatRequest, user=Depends(require_user)):
     citations = []
     if payload.use_knowledge and payload.mode != "assign":
         from app import knowledge
-        passages = knowledge.retrieve(payload.messages[-1].content, limit=5)
+        passages = knowledge.retrieve(payload.messages[-1].content, limit=5, project_id=payload.project_id)
         if passages:
             labelled = []
             for number, passage in enumerate(passages, 1):
@@ -328,7 +328,7 @@ def confirm(proposal_id: UUID, payload: Confirmation, user=Depends(require_user)
                 if not document or document["revision"] != prd_source["revision"]:
                     raise HTTPException(409, "The brief changed. Review a fresh preview.")
                 plan = Breakdown.model_validate({"cards":record["data"]["cards"]})
-                inputs = [CardCreate.model_validate({**c.model_dump(exclude={"key","depends_on","project_id"}),"project_id":project_id}) for c in plan.cards]
+                inputs = [CardCreate.model_validate({**c.model_dump(exclude={"key","depends_on","project_id","source_passages"}),"project_id":project_id}) for c in plan.cards]
             else:
                 plan = PlanDraft.model_validate({"cards":record["data"]["cards"]})
                 inputs = [CardCreate.model_validate({**c.model_dump(exclude={"project_id"}),"project_id":project_id}) for c in plan.cards]
@@ -339,11 +339,15 @@ def confirm(proposal_id: UUID, payload: Confirmation, user=Depends(require_user)
                     created.append(cards.create_card(item))
                 if prd_source:
                     resolved = {draft.key:card["id"] for draft,card in zip(plan.cards,created)}
+                    passages_by_id = {p["id"]:p for p in record["data"].get("passages",[])}
                     for draft,card in zip(plan.cards,created):
                         persisted = storage.cards[card["id"]]
                         persisted["depends_on"] = [resolved[key] for key in draft.depends_on]
                         persisted["source_prd_id"] = prd_source["id"]
                         persisted["source_prd_revision"] = prd_source["revision"]
+                        persisted["source_passages"] = [
+                            {"id":pid,"quote":passages_by_id[pid]["text"][:200]}
+                            for pid in draft.source_passages if pid in passages_by_id]
                         card.update(deepcopy(persisted))
             except Exception:
                 # Outer SQLite transaction also rolls back the entire batch.

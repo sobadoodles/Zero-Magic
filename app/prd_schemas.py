@@ -8,6 +8,7 @@ from pydantic import StringConstraints
 from app.schemas import NonBlankText, CardCreate
 
 DraftKey = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_-]{0,31}$")]
+PassageKey = Annotated[str, StringConstraints(pattern=r"^P(?:[1-9]|[1-3][0-9]|40)$")]
 
 
 class PRDInput(BaseModel):
@@ -29,6 +30,8 @@ class CardDraft(CardCreate):
     acceptance_criteria: list[NonBlankText] = Field(min_length=1, max_length=8)
     out_of_scope: str = Field(default="", max_length=1500)
     depends_on: list[DraftKey] = Field(default_factory=list, max_length=11)
+    # Which numbered brief passages this card is based on (P1..P40); [] when none apply.
+    source_passages: list[PassageKey] = Field(default_factory=list, max_length=6)
 
 
 class Breakdown(BaseModel):
@@ -52,6 +55,8 @@ class Breakdown(BaseModel):
         for card in self.cards:
             if card.key in card.depends_on or len(set(card.depends_on)) != len(card.depends_on):
                 raise ValueError("No self-dependencies or repeated dependencies.")
+            if len(set(card.source_passages)) != len(card.source_passages):
+                raise ValueError("source_passages must not repeat within one card.")
             if not set(card.depends_on) <= set(keys):
                 raise ValueError("Every dependency must name a key from this draft.")
         visiting, visited = set(), set()

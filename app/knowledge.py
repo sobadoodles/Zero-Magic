@@ -46,6 +46,7 @@ class DocumentInput(BaseModel):
     source_name: str = Field(min_length=1, max_length=150)
     format: str = Field(default="pdf", pattern="^(pdf|docx)$")
     page_count: int | None = Field(default=None, ge=1, strict=True, le=50)
+    project_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
     chunks: list[ChunkInput] = Field(min_length=1, max_length=800)
 
 
@@ -60,6 +61,15 @@ class SearchInput(BaseModel):
     query: NonBlankText = Field(max_length=2000)
     limit: int = Field(default=5, ge=1, le=10, strict=True)
     mode: str = Field(default="keyword", pattern="^(keyword|semantic)$")
+    project_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
+
+
+class AskInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: NonBlankText = Field(max_length=2000)
+    project_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
+    mode: str = Field(default="keyword", pattern="^(keyword|semantic)$")
+    limit: int = Field(default=5, ge=1, le=8, strict=True)
 
 
 class EmbedInput(BaseModel):
@@ -69,6 +79,14 @@ class EmbedInput(BaseModel):
 
 def chunk_id(source, ordinal):
     return f"{source}::{ordinal:05d}"
+
+
+def allowed_sources(project_id):
+    """Passages attached to this project (board) plus unattached workspace-wide ones."""
+    if project_id is None:
+        return None
+    return {name for name, record in doc_files.items()
+            if record.get("project_id") in (None, project_id)}
 
 
 def document_summary(record):
@@ -101,11 +119,13 @@ def fetch_document(source_name: str):
 @router.post("", status_code=201)
 @storage.synchronized
 def save_library(payload: LibrarySave, user=Depends(require_user)):
+    from app.projects import validate_project
     incoming = {}
     for document in payload.documents:
         name = document.source_name.strip()
         if not SOURCE_PATTERN.match(name) or name in incoming:
             raise HTTPException(422, "Use a plain filename without paths, once per document.")
+        validate_project(document.project_id)
         incoming[name] = document
 
     reused = [name for name in incoming if name in doc_files]
@@ -133,6 +153,8 @@ def save_library(payload: LibrarySave, user=Depends(require_user)):
             "source_name": name,
             "format": document.format,
             "page_count": document.page_count,
+            "project_id": document.project_id,
+            "status": "ready",
             "chunk_count": len(document.chunks),
             "characters": sum(len(chunk.text) for chunk in document.chunks),
             "ingested_by": user["id"],
@@ -187,10 +209,11 @@ def remove_document(source_name: str, user=Depends(require_user)):
     return {"status": "removed", "source_name": source_name, "removed_chunks": len(removed)}
 
 
-def keyword_results(query, limit):
+def keyword_results(query, limit, sources=None):
     from app.document_search import search_words
 
-    ordered = [doc_chunks[key] for key in sorted(doc_chunks)]
+    ordered = [doc_chunks[key] for key in sorted(doc_chunks)
+               if sources is None or doc_chunks[key]["source"] in sources]
     query_words = search_words(query)
     scored = []
     for chunk in search_chunks(ordered, query):
@@ -227,7 +250,7 @@ def _load_vectors():
     return vectors
 
 
-def semantic_results(query, limit):
+def semantic_results(query, limit, sources=None):
     vectors = _load_vectors()
     if not vectors:
         raise HTTPException(409, "No embedded passages yet. Use keyword search or run embedding first.")
@@ -240,11 +263,14 @@ def semantic_results(query, limit):
     for chunk_key, vector in vectors.items():
         if len(vector) != len(query_vector):
             continue
+        chunk = doc_chunks[chunk_key]
+        if sources is not None and chunk["source"] not in sources:
+            continue
         try:
             score = cosine_similarity(vector, query_vector)
         except ValueError:
             continue
-        ranked.append((score, doc_chunks[chunk_key]))
+        ranked.append((score, chunk))
     ranked.sort(key=lambda item: item[0], reverse=True)
     return [
         {**chunk, "similarity": round(score, 4)}
@@ -252,19 +278,26 @@ def semantic_results(query, limit):
     ]
 
 
-def retrieve(query, limit=5, mode="keyword"):
-    """Shared by the API and the assistant. Keyword-first; returns labelled copies."""
+def retrieve(query, limit=5, mode="keyword", project_id=None):
+    """Shared by the API and the assistant. Keyword-first; returns labelled copies.
+
+    project_id scopes to a board's attached documents plus workspace-wide passages.
+    """
+    from app.projects import validate_project
     with storage.lock:
+        if project_id is not None:
+            validate_project(project_id)
+        sources = allowed_sources(project_id)
         if not doc_chunks:
             return []
         if mode == "semantic":
-            return semantic_results(query, limit)
-        return keyword_results(query, limit)
+            return semantic_results(query, limit, sources)
+        return keyword_results(query, limit, sources)
 
 
 @router.post("/search")
 def search_library(payload: SearchInput):
-    results = retrieve(payload.query, payload.limit, payload.mode)
+    results = retrieve(payload.query, payload.limit, payload.mode, payload.project_id)
     return {
         "query": payload.query,
         "mode": payload.mode,
@@ -276,6 +309,41 @@ def search_library(payload: SearchInput):
             for chunk in results
         ],
     }
+
+
+@router.post("/ask")
+def ask_library(payload: AskInput):
+    """Grounded question answering over the library (optionally board-scoped).
+
+    Answers ONLY from retrieved passages, with document/page/quote citations, or a
+    plain not-found statement. Provider/contract failures return 503 — never a guess.
+    """
+    from app.document_qa import answer_from_passages
+    passages = retrieve(payload.question, payload.limit, payload.mode, payload.project_id)
+    result = answer_from_passages(payload.question, passages)
+    if "skipped" in result:
+        raise HTTPException(503, result["skipped"])
+    return {"question": payload.question, "project_id": payload.project_id, "mode": payload.mode,
+            "passages_consulted": len(passages), **result}
+
+
+class AttachInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
+
+
+@router.put("/{source_name}")
+@storage.synchronized
+def attach_document(source_name: str, payload: AttachInput, user=Depends(require_user)):
+    from app.projects import validate_project
+    record = doc_files.get(source_name)
+    if record is None:
+        raise HTTPException(404, "Document is not in the knowledge library.")
+    if not user["is_admin"] and record["ingested_by"] != user["id"]:
+        raise HTTPException(403, "Only the document's importer or the workspace owner can move it.")
+    validate_project(payload.project_id)
+    record["project_id"] = payload.project_id
+    return document_summary(record)
 
 
 @router.post("/embed", status_code=200)

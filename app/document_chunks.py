@@ -15,10 +15,8 @@ def chunk_page(source_name, page, text):
 
     parts = []
     for paragraph in paragraphs:
-        if page is None:
-            parts.append(paragraph)
-            continue
-
+        # Split label-led lines (Goal:, Users:, Reminder rule: …) into their own
+        # parts whether or not the page is known: briefs and Word bodies benefit too.
         lines = []
         for line in paragraph.split("\n"):
             if pdf_label.match(line) and lines:
