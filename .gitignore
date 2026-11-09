@@ -17,3 +17,5 @@ workspace-export*.json
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
+# QA run artifacts (local evaluation output)
+eval/results/

@@ -1,0 +1,71 @@
+{
+  "note": "Questions over Team-Task-Reminders.pdf (data/week4-review-chunks-v4.json). Gold passages are matched by source, page, and a required phrase — edit must_contain to match your exact chunk text. q_persian_who intentionally asks in Persian about English text: keyword search should miss it and the multilingual embedding is the test of semantic retrieval.",
+  "questions": [
+    {
+      "id": "q_reminder_when",
+      "question": "When is the in-app reminder sent for a task with a due date?",
+      "expected_found": true,
+      "gold": {
+        "source": "Team-Task-Reminders.pdf",
+        "page": 2,
+        "must_contain": "one day before the due date, at 9:00 in the workspace time zone"
+      }
+    },
+    {
+      "id": "q_who_changes_default",
+      "question": "Who is allowed to change the default reminder time?",
+      "expected_found": true,
+      "gold": {
+        "source": "Team-Task-Reminders.pdf",
+        "page": 2,
+        "must_contain": "Only the workspace owner may change the default reminder time"
+      }
+    },
+    {
+      "id": "q_member_mute",
+      "question": "Can a team member stop reminders for their own tasks?",
+      "expected_found": true,
+      "gold": {
+        "source": "Team-Task-Reminders.pdf",
+        "page": 2,
+        "must_contain": "team member can mute reminders for their own tasks"
+      }
+    },
+    {
+      "id": "q_delivery_failure",
+      "question": "What should happen when a reminder cannot be delivered?",
+      "expected_found": true,
+      "gold": {
+        "source": "Team-Task-Reminders.pdf",
+        "page": 2,
+        "must_contain": "record the failure and let an administrator retry"
+      }
+    },
+    {
+      "id": "q_out_of_scope",
+      "question": "Is billing part of this release?",
+      "expected_found": true,
+      "gold": {
+        "source": "Team-Task-Reminders.pdf",
+        "page": 1,
+        "must_contain": "billing are not part of this release"
+      }
+    },
+    {
+      "id": "q_email_provider",
+      "question": "Which email provider is used to send the reminders?",
+      "expected_found": false,
+      "gold": null
+    },
+    {
+      "id": "q_persian_who",
+      "question": "چه کسی می‌تواند زمان پیش‌فرض یادآوری را تغییر دهد؟",
+      "expected_found": true,
+      "gold": {
+        "source": "Team-Task-Reminders.pdf",
+        "page": 2,
+        "must_contain": "Only the workspace owner may change the default reminder time"
+      }
+    }
+  ]
+}

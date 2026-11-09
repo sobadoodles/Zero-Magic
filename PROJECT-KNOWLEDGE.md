@@ -45,7 +45,7 @@ the live database is username `sabasadeghibigham` (admin), linked to person prof
 ```powershell
 # from C:\Zero Magic Project, with .venv active
 python -m uvicorn app.main:app --reload     # http://127.0.0.1:8000
-python -m pytest -q                          # full suite (223 tests, ~80s, no network)
+python -m pytest -q                          # full suite (242 tests, ~70s, no network)
 ```
 
 Config comes from `.env` (never committed): `GROQ_API_KEY` + `MODELS`
@@ -66,7 +66,7 @@ Config comes from `.env` (never committed): `GROQ_API_KEY` + `MODELS`
 | 3 | Oct 27 | `417e015` | **PRD feature**: saved briefs + immutable revisions, `instructor` structured breakdown, dependency DAG drafts, Building-prerequisite guard, generation rate limits |
 | 3→4 | Oct 27 | `63e5db5` | Large fix/feature commit: **projects + color labels + permanent project deletion** (`app/projects.py`), **PDF/Word document import** (`app/documents.py`, `app/document_worker.py`), restored stage updates, and **changed single-card deletion** to strip dependents' links instead of blocking |
 | 4 | Nov 4 | `ea97a1d` | **Chunking + keyword search**: `document_chunks.py`, `document_search.py`, `ingest_documents.py`, `search_documents.py`, **Persian/Arabic normalization**, page/section-preserving extraction (`include_pages`), invisible-character validation, plus many new tests |
-| 4→5 | Nov 9 | `feat/document-retrieval` branch (5 commits) | **Week-4 work committed**; then **retrieval integrated**: structured PDF ingestion (font-size headings, 3+ page header/footer removal), `text_normalized` per chunk, SQLite **knowledge library** (`app/knowledge.py`: save/list/fetch/delete/search/embed), `/documents/structure` review endpoint, **assistant RAG** (`use_knowledge` + `[K1]` citations), Documents dialog + Library toggle in the frontend, `scripts/import_chunks.py`, 24 new tests (223 total). Housekeeping fixed: duplicate DELETE route registration, dead import, duplicated test |
+| 4→5 | Nov 9 | `feat/document-retrieval` branch (2 series of commits) | **Week-4 work committed**; then **retrieval integrated**: structured PDF ingestion (font-size headings, 3+ page header/footer removal), `text_normalized` per chunk, SQLite **knowledge library** (`app/knowledge.py`: save/list/fetch/delete/search/embed), `/documents/structure` review endpoint, **assistant RAG** (`use_knowledge` + `[K1]` citations), Documents dialog + Library toggle in the frontend, `scripts/import_chunks.py`, 24 new tests. Housekeeping fixed: duplicate DELETE route, dead import, duplicated test, junk files. Then **document QA deliverable**: `scripts/answer_questions.py` (grounded CLI answers with per-claim citations, keyword-vs-semantic comparison, failure-collection artifacts, `--no-answering` free mode), `eval/questions.json` (7 gold questions incl. a Persian probe + an expected-miss probe), spec + guide, 19 more tests (**242 total**) |
 
 Current branch: `feat/document-retrieval` (off `feat/document-import`; branches also exist for
 `master`, `feat/create-card`, `feat/prd-breakdown`; remote mirrors the older ones).
@@ -453,6 +453,45 @@ The Week-4 offline pipeline is now the assistant's retrieval layer.
   extraction now warns; its two-page header stays (documented 3-page guard).
 - New spec `docs/specs/document-retrieval.md`; guide `DOCUMENT-RETRIEVAL.md`.
 
+### 4.14 Document QA answerer — citations, mode comparison, failure collection (`scripts/answer_questions.py`)
+
+The measuring instrument for "most wrong answers start here": a read-only CLI over the
+knowledge library.
+
+- **Strict grounded answers**: per question, passages from each mode are labelled
+  `[K1..Kn]` and sent with "use ONLY these passages; cite every claim `[Kn]`; otherwise
+  `found=false` with an answer starting 'The documents do not contain the answer'".
+  Enforced twice over: the `GroundedAnswer` Pydantic contract (found ⇒ ≥1 citation;
+  not-found ⇒ no citations + plain statement) runs through `ask_structured` (Instructor
+  re-ask), and mechanical checks re-verify the returned answer against what was provided.
+  No board context, no writes, no approval powers. Provider failure ⇒ recorded `skipped`,
+  never improvised.
+- **Failure taxonomy (deterministic)**: retrieval miss; gold-missing-from-library;
+  hallucinated citation ids; answered-without-citation; retrieved-but-ignored (gold in
+  context yet neither cited nor reflected, or denial despite gold); unsupported citation
+  (≥60% significant-token check of the claim against answer+cited text); hallucination on
+  expected-miss questions.
+- **Keyword vs semantic comparison** per question: gold rank each mode, set-overlap
+  (Jaccard), verdicts (`keyword-first`, `semantic-first`, `semantic-only-gold — the
+  multilingual embeddings found what keywords missed`, …). Missing vectors / unavailable
+  model mark semantic `skipped` instead of crashing.
+- **Question sets**: `eval/questions.json` (≤40): `{id, question, expected_found,
+  gold: {source, page?, must_contain}}` — gold resolved by *normalized* containment
+  (Persian/Arabic forms linked). The shipped set targets the practice PDF: five answerable
+  questions, one deliberate **expected-miss** probe (`q_email_provider`), and one
+  **Persian question about English text** (`q_persian_who`) designed to show keyword
+  retrieval miss while the multilingual embedding finds the gold passage.
+- **Artifacts**: console table + `eval/results/qa-<ts>/results.json` (full detail) and
+  `failures.md` (grouped failures + comparison list). `--no-answering` = free retrieval
+  evaluation; `--strict` = nonzero exit on failures; `--db` = point at a copy; stdout is
+  UTF-8-reconfigured for Persian verdicts.
+- **Live demonstration on your own data** (server stopped, disposable DB): importing
+  `week4-review-chunks-v4.json` + `week4-vector-index.json` and running the CLI gave:
+  semantic-first for `q_reminder_when` (gold rank 3 → 1), keyword-first for all literal
+  phrasings, and `q_persian_who` = **retrieval miss in keyword, gold rank 2 in semantic**
+  — the comparison the exercise asked for. The 7th question (`q_email_provider`) correctly
+  records zero failures as a no-gold probe.
+
 ---
 
 ## 5. Security model (as implemented)
@@ -476,7 +515,7 @@ The Week-4 offline pipeline is now the assistant's retrieval layer.
 
 ---
 
-## 6. Tests — full inventory (223 passing, verified 2026-11-09 on `feat/document-retrieval`, ~80s, zero network)
+## 6. Tests — full inventory (242 passing, verified 2026-11-09 on `feat/document-retrieval`, ~70s, zero network)
 
 `tests/conftest.py` sets `ZERO_MAGIC_DB` to a temp dir **before** any app import (and refuses
 to run if the app was imported first), so the real workspace DB is never touched. All AI
@@ -494,6 +533,7 @@ calls are mocked or served through `httpx.MockTransport`; no Groq tokens are con
 | `test_people.py` | 8 | create/list order, trim skills; edit; blank 422; assign/unassign roundtrip persistence; unknown person leaves assignment untouched; missing card 404; missing `person_id` key 422; update missing 404 |
 | `test_document_chunks.py` | 8 | page/heading/source labels; no invented Word pages; heading-only kept; Arabic/Persian normalization incl. digits; half-space kept; PDF label-line splitting with continuations; reminder-rule splitting |
 | `test_document_search.py` | 3 | relevance ordering; Persian-form query matches Arabic-form text (display text untouched); **CLI output test** (source/page/text shown) |
+| `test_document_qa.py` | 19 | **Week 5**: strict `GroundedAnswer` contract (cite-when-found, plain not-found); gold resolution incl. Persian forms; the whole failure taxonomy (retrieval miss / gold-missing-from-library / hallucinated id / uncited / retrieved-but-ignored / unsupported-citation / answered-unanswerable); mode comparison (overlap, semantic-only-gold, unavailable mode); orchestrator + `failures.md` rendering; `eval/questions.json` loads; real CLI subprocess run retrieval-only on a fresh imported DB |
 | `test_semantic_search.py` | 4 | rank by cosine; save→load→search round trip; `create_index` with fake model keeps labels + model name; `search_index` embeds question (iterator) and ranks |
 | `test_knowledge.py` | 24 | **Week 5**: PDF font-size heading detection + 3-page header/footer removal; no-structure fallback claim; structure route review-only (zero writes) + auth; save with server-side normalization; payload rejections; 409 duplicate/replace semantics; library caps (monkeypatched); list/fetch/404; delete permissions + vector cleanup in one transaction; keyword ranking/limit/Persian-Arabic query linking; semantic without vectors 409; fake-model embed (missing→all, idempotent second run, force, similarity search, listed counts); embed busy 429; missing-fastembed 503; chat citations ([K1] block, response shape, toggle off, empty library, assign ignores); injected "SYSTEM:" passage cannot trigger writes; `import_chunks` CLI subprocess (vectors + replace isolation); restart survival |
 
@@ -524,18 +564,22 @@ no secrets committed, documented limitations.
 
 - **Root guides**: `START-HERE.md` (auth+SQLite install), `SETUP.md` (assistant actions),
   `PRD-UPDATE.md`, `DOCUMENT-IMPORT.md`, `PROJECTS-UPDATE.md`, **`DOCUMENT-RETRIEVAL.md`**
-  (Week-5 install/run), `architecture.md` (Week 1–2, now partly historical),
+  (Week-5 install/run), **`DOCUMENT-QA.md`** (grounded CLI answers + failures),
+  `architecture.md` (Week 1–2, now partly historical),
   `PROJECT-KNOWLEDGE.md` (this file), `testing.py` (git test).
-- **`docs/specs/`**: 8 specs — `create-card`, `comments`, `assistant-actions`,
+- **`docs/specs/`**: 9 specs — `create-card`, `comments`, `assistant-actions`,
   `prd-breakdown`, `document-import`, `projects`, **`document-retrieval`**,
-  `review-checklist`.
-- **`app/`**: 17 modules (§3.3, now incl. `knowledge.py`). **`tests/`**: 12 files + conftest (§6).
+  **`document-qa`**, `review-checklist`.
+- **`app/`**: 17 modules (§3.3, now incl. `knowledge.py`). **`tests/`**: 13 files + conftest (§6).
 - **`frontend/`**: `index.html`, `app.js`, `styles.css`, `vendor/` (marked, purify + licenses).
 - **`scripts/`**: `export_old_workspace.py` (legacy in-memory era), `import_workspace.py`
   (empty-DB legacy import), `backup_database.py` (SQLite backup API), `reset_password.py`,
   `list_models.py`, `try_model.py` (two-turn smoke test), `ignore-private-files.ps1`
   (append-only .gitignore), Week-4 CLIs `ingest_documents.py`, `search_documents.py`,
-  `index_documents.py`, `search_semantic.py`, **`import_chunks.py`** (library bridge).
+  `index_documents.py`, `search_semantic.py`, **`import_chunks.py`** (library bridge),
+  **`answer_questions.py`** (grounded QA + comparison + failure collection).
+- **`eval/`**: `questions.json` (tracked gold questions) + `results/` (gitignored run
+  artifacts: results.json, failures.md).
 - **`data/`**: live DB + week-4 chunk/vector JSONs + `week4-review-documents/`
   Team-Task-Reminders.pdf. **`backups/`**: one private snapshot.
 - **Env artifacts**: `.env` (key + 2 Groq gpt-oss models), `.venv` (complete: fastapi,
@@ -651,9 +695,12 @@ The project has a *very* consistent set of design laws. Any new feature should f
 
 The single most conspicuous gap is now **closed**: as of Week 5 (`feat/document-retrieval`)
 the chunk/vector layer feeds a live SQLite knowledge library that the assistant retrieves
-from and cites with `[K1]` ids (§4.13). Remaining retrieval polish: hybrid keyword+semantic
-ranking, semantic (not just keyword) matching in the chat retrieval path, citations inside
-PRD breakdowns, and auto re-embed on replace. Other equally documented candidates: AI
+from and cites with `[K1]` ids (§4.13), and the measurement instrument itself exists:
+`scripts/answer_questions.py` (§4.14) gives grounded CLI answers with per-claim citations,
+keyword-vs-semantic comparison, and a collected `failures.md`. Remaining retrieval polish:
+hybrid keyword+semantic reranking, semantic (not just keyword) matching in the chat
+retrieval path, citations inside PRD breakdowns, auto re-embed on replace, and turning
+observed failures into follow-up board cards. Other equally documented candidates: AI
 edits to existing cards (with the same preview discipline), saved chat transcripts,
 board-wide realtime sync, semantic duplicate detection, dependency editing UI, and the
 base requirements/lockfile still missing (§11.7).
