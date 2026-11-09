@@ -1,0 +1,515 @@
+{
+  "mode": "keyword",
+  "top": 5,
+  "scores": {
+    "retrieval": [
+      24,
+      25
+    ],
+    "groundedness": [
+      24,
+      25
+    ],
+    "refusal": [
+      5,
+      5
+    ]
+  },
+  "failures_by_cause": {
+    "retrieval": [
+      "Q20"
+    ]
+  },
+  "results": [
+    {
+      "id": "Q01",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "Git is the authoritative source of truth for code, branches, diffs, CI status, and merges in Zero Magic.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00004",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00004",
+        "Zero Magic Reference PRD.pdf::00006",
+        "Zero Magic Reference PRD.pdf::00041",
+        "Zero Magic Reference PRD.pdf::00026",
+        "Zero Magic Reference PRD.pdf::00011"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q02",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "No, the coding agent that builds a card is prohibited from validating or approving that same card.",
+      "cited_count": 2,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00005",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00005",
+        "Zero Magic Reference PRD.pdf::00031",
+        "Zero Magic Reference PRD.pdf::00032",
+        "Zero Magic Reference PRD.pdf::00040",
+        "Zero Magic Reference PRD.pdf::00023"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q03",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "No, a card cannot merge to main automatically; a human actor must trigger the final transition to Done.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00006",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00006",
+        "Zero Magic Reference PRD.pdf::00005",
+        "Zero Magic Reference PRD.pdf::00041",
+        "Zero Magic Reference PRD.pdf::00010",
+        "Zero Magic Reference PRD.pdf::00018"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q04",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "My Cards is represented as a query filter, not a board column, and each card can have only one assignee at a time.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00007",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00007",
+        "Zero Magic Reference PRD.pdf::00032",
+        "Zero Magic Reference PRD.pdf::00004",
+        "Zero Magic Reference PRD.pdf::00011",
+        "Zero Magic Reference PRD.pdf::00029"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q05",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "Spec, Ready, Building, Checks, Validation, Done",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00008",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00008",
+        "Zero Magic Reference PRD.pdf::00031",
+        "Zero Magic Reference PRD.pdf::00027",
+        "Zero Magic Reference PRD.pdf::00023",
+        "Zero Magic Reference PRD.pdf::00005"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q06",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "An illegal stage jump returns HTTP 409 Conflict, while a malformed schema payload returns HTTP 422 Unprocessable Entity.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00008",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00008",
+        "Zero Magic Reference PRD.pdf::00004",
+        "Zero Magic Reference PRD.pdf::00023",
+        "Zero Magic Reference PRD.pdf::00027",
+        "Zero Magic Reference PRD.pdf::00032"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q07",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "A card in the 'Checks' stage can transition only to the 'Validation' stage.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00008",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00008",
+        "Zero Magic Reference PRD.pdf::00006",
+        "Zero Magic Reference PRD.pdf::00005",
+        "Zero Magic Reference PRD.pdf::00007",
+        "Zero Magic Reference PRD.pdf::00025"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q08",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "If a coding agent in the Building stage encounters an ambiguous specification, it must stop immediately and post a question in the card comments rather than guessing.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00023",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00023",
+        "Zero Magic Reference PRD.pdf::00008",
+        "Zero Magic Reference PRD.pdf::00005",
+        "Zero Magic Reference PRD.pdf::00006",
+        "Zero Magic Reference PRD.pdf::00015"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q09",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "When a human in Validation rejects a card and sends it back to Building, the runner resumes the existing agent session ID so prior context and feedback are preserved.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00023",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00023",
+        "Zero Magic Reference PRD.pdf::00040",
+        "Zero Magic Reference PRD.pdf::00020",
+        "Zero Magic Reference PRD.pdf::00006",
+        "Zero Magic Reference PRD.pdf::00008"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q10",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The maximum file size is 10 MB per document, and the accepted formats are PDF (.pdf), Microsoft Word (.docx), and Markdown (.md).",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00024",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00024",
+        "Zero Magic Reference PRD.pdf::00027",
+        "Zero Magic Reference PRD.pdf::00023",
+        "Zero Magic Reference PRD.pdf::00026",
+        "Zero Magic Reference PRD.pdf::00029"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q11",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The four ingestion lifecycle states are pending, processing, ready, and failed. If the server crashes during ingestion, a startup recovery sweep marks any stranded processing documents as failed with a diagnostic reason.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00025",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00025",
+        "Zero Magic Reference PRD.pdf::00026",
+        "Zero Magic Reference PRD.pdf::00023",
+        "Zero Magic Reference PRD.pdf::00027",
+        "Zero Magic Reference PRD.pdf::00031"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q12",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The ingestion pipeline uses structure‑aware chunking, splitting documents at natural boundaries such as sections, headings and numbered clauses while keeping each chunk’s source ID, page and heading. For Persian documents it normalizes Arabic Yeh and Kaf characters to their standard Persian forms, preserves zero‑width non‑joiners (half‑spaces), and consistently converts numerals.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00026",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00026",
+        "Zero Magic Reference PRD.pdf::00025",
+        "Zero Magic Reference PRD.pdf::00024",
+        "Zero Magic Reference PRD.pdf::00027",
+        "Zero Magic Reference PRD.pdf::00029"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q13",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "When no relevant passages are retrieved, the endpoint returns a plain not‑found refusal directly without invoking the language model.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00027",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00027",
+        "Zero Magic Reference PRD.pdf::00029",
+        "Zero Magic Reference PRD.pdf::00023",
+        "Zero Magic Reference PRD.pdf::00024",
+        "Zero Magic Reference PRD.pdf::00026"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q14",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "If the model invents a non‑existent source_passages ID, the backend aborts the breakdown and returns an HTTP 502 Bad Gateway response, and no draft cards are written.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00029",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00029",
+        "Zero Magic Reference PRD.pdf::00027",
+        "Zero Magic Reference PRD.pdf::00023",
+        "Zero Magic Reference PRD.pdf::00026",
+        "Zero Magic Reference PRD.pdf::00042"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q15",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The POST /api/v1/prds/{id}/breakdown endpoint enforces a 30‑second execution timeout and a per‑user rate limit of 5 requests per minute.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00029",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00029",
+        "Zero Magic Reference PRD.pdf::00024",
+        "Zero Magic Reference PRD.pdf::00027",
+        "Zero Magic Reference PRD.pdf::00042",
+        "Zero Magic Reference PRD.pdf::00023"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q16",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "Write tools return a structured preview payload that requires explicit human confirmation before execution, whereas read tools execute immediately within the turn loop.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00030",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00030",
+        "Zero Magic Reference PRD.pdf::00038",
+        "Zero Magic Reference PRD.pdf::00031",
+        "Zero Magic Reference PRD.pdf::00043",
+        "Zero Magic Reference PRD.pdf::00026"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q17",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The board assistant caps conversation history at 15 turns per session, and any instructions embedded in uploaded documents or card comments are treated as untrusted data that cannot trigger write tool calls.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00031",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00031",
+        "Zero Magic Reference PRD.pdf::00030",
+        "Zero Magic Reference PRD.pdf::00004",
+        "Zero Magic Reference PRD.pdf::00029",
+        "Zero Magic Reference PRD.pdf::00032"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q18",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The background worker polls for Ready cards every 5 seconds, and it creates a dedicated Git worktree at ../wt/card-<id> on the card/<id> branch.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00032",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00032",
+        "Zero Magic Reference PRD.pdf::00011",
+        "Zero Magic Reference PRD.pdf::00015",
+        "Zero Magic Reference PRD.pdf::00004",
+        "Zero Magic Reference PRD.pdf::00023"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q19",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The maximum number of turns allowed for a headless coding agent run is 30 turns. If this limit is exceeded, the runner terminates the process, logs a partial transcript, and marks the run as failed_turn_cap.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00035",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00032",
+        "Zero Magic Reference PRD.pdf::00023",
+        "Zero Magic Reference PRD.pdf::00035",
+        "Zero Magic Reference PRD.pdf::00005",
+        "Zero Magic Reference PRD.pdf::00033"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q20",
+      "type": "answerable",
+      "retrieval_pass": false,
+      "grounded_pass": false,
+      "found": true,
+      "answer": "The wall‑clock execution timeout is 15 minutes (900 seconds) and the maximum cost budget is $1.50 USD per card run.",
+      "cited_count": 2,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00033",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00036",
+        "Zero Magic Reference PRD.pdf::00037",
+        "Zero Magic Reference PRD.pdf::00029",
+        "Zero Magic Reference PRD.pdf::00032",
+        "Zero Magic Reference PRD.pdf::00040"
+      ],
+      "cause": "retrieval (evidence chunk ranked outside top-5)"
+    },
+    {
+      "id": "Q21",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The allowlist for the headless coding agent includes the CLI tools: Read, Edit, Write, and Bash(pytest:*)",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00038",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00032",
+        "Zero Magic Reference PRD.pdf::00038",
+        "Zero Magic Reference PRD.pdf::00023",
+        "Zero Magic Reference PRD.pdf::00015",
+        "Zero Magic Reference PRD.pdf::00040"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q22",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "A human user’s JWT is valid for 8 hours. Agent tokens are prohibited from approving a spec in the Spec stage and from moving a card from Validation to Done.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00040",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00040",
+        "Zero Magic Reference PRD.pdf::00005",
+        "Zero Magic Reference PRD.pdf::00022",
+        "Zero Magic Reference PRD.pdf::00007",
+        "Zero Magic Reference PRD.pdf::00023"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q23",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The Gitea Actions CI workflow automatically runs the security scanning tools bandit, pip‑audit, npm audit, and Gitleaks.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00041",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00041",
+        "Zero Magic Reference PRD.pdf::00018",
+        "Zero Magic Reference PRD.pdf::00004",
+        "Zero Magic Reference PRD.pdf::00037",
+        "Zero Magic Reference PRD.pdf::00006"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q24",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The production deployment uses the python:3.12-slim Docker image for the FastAPI backend and PostgreSQL version 16.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00042",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00042",
+        "Zero Magic Reference PRD.pdf::00032",
+        "Zero Magic Reference PRD.pdf::00026",
+        "Zero Magic Reference PRD.pdf::00043",
+        "Zero Magic Reference PRD.pdf::00025"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q25",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "No, native Slack notifications and automated Kubernetes autoscaling are not supported in version 1.0; they are listed as out‑of‑scope for v1.0.",
+      "cited_count": 1,
+      "evidence_id": "Zero Magic Reference PRD.pdf::00043",
+      "retrieved_ids": [
+        "Zero Magic Reference PRD.pdf::00043",
+        "Zero Magic Reference PRD.pdf::00013",
+        "Zero Magic Reference PRD.pdf::00027",
+        "Zero Magic Reference PRD.pdf::00004",
+        "Zero Magic Reference PRD.pdf::00028"
+      ],
+      "cause": null
+    },
+    {
+      "id": "Q26",
+      "type": "refusal",
+      "refusal_pass": true,
+      "found": false,
+      "answer": "The documents do not contain the answer, as there is no mention of a monthly AWS EC2 hosting bill budget.",
+      "cause": null
+    },
+    {
+      "id": "Q27",
+      "type": "refusal",
+      "refusal_pass": true,
+      "found": false,
+      "answer": "The documents do not contain the answer, the SMTP email provider is not specified.",
+      "cause": null
+    },
+    {
+      "id": "Q28",
+      "type": "refusal",
+      "refusal_pass": true,
+      "found": false,
+      "answer": "The documents do not contain the answer, specifying the minimum CPU and RAM hardware specification required on the developer's laptop.",
+      "cause": null
+    },
+    {
+      "id": "Q29",
+      "type": "refusal",
+      "refusal_pass": true,
+      "found": false,
+      "answer": "The documents do not contain the answer, as there is no mention of internship vacation days.",
+      "cause": null
+    },
+    {
+      "id": "Q30",
+      "type": "refusal",
+      "refusal_pass": true,
+      "found": false,
+      "answer": "The documents do not contain the answer, missing the hex color code for dark mode backgrounds in the PrimeVue theme.",
+      "cause": null
+    }
+  ]
+}

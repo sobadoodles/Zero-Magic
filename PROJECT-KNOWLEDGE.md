@@ -45,7 +45,7 @@ the live database is username `sabasadeghibigham` (admin), linked to person prof
 ```powershell
 # from C:\Zero Magic Project, with .venv active
 python -m uvicorn app.main:app --reload     # http://127.0.0.1:8000
-python -m pytest -q                          # full suite (254 tests, ~75s, no network)
+python -m pytest -q                          # full suite (267 tests, ~80s, no network)
 ```
 
 Config comes from `.env` (never committed): `GROQ_API_KEY` + `MODELS`
@@ -67,7 +67,7 @@ Config comes from `.env` (never committed): `GROQ_API_KEY` + `MODELS`
 | 3→4 | Oct 27 | `63e5db5` | Large fix/feature commit: **projects + color labels + permanent project deletion** (`app/projects.py`), **PDF/Word document import** (`app/documents.py`, `app/document_worker.py`), restored stage updates, and **changed single-card deletion** to strip dependents' links instead of blocking |
 | 4 | Nov 4 | `ea97a1d` | **Chunking + keyword search**: `document_chunks.py`, `document_search.py`, `ingest_documents.py`, `search_documents.py`, **Persian/Arabic normalization**, page/section-preserving extraction (`include_pages`), invisible-character validation, plus many new tests |
 | 4→5 | Nov 9 | `feat/document-retrieval` branch (2 series of commits) | **Week-4 work committed**; then **retrieval integrated**: structured PDF ingestion (font-size headings, 3+ page header/footer removal), `text_normalized` per chunk, SQLite **knowledge library** (`app/knowledge.py`: save/list/fetch/delete/search/embed), `/documents/structure` review endpoint, **assistant RAG** (`use_knowledge` + `[K1]` citations), Documents dialog + Library toggle in the frontend, `scripts/import_chunks.py`, 24 new tests. Housekeeping fixed: duplicate DELETE route, dead import, duplicated test, junk files. Then **document QA deliverable**: `scripts/answer_questions.py` (grounded CLI answers with per-claim citations, keyword-vs-semantic comparison, failure-collection artifacts, `--no-answering` free mode), `eval/questions.json` (7 gold questions incl. a Persian probe + an expected-miss probe), spec + guide, 19 more tests (242 total) |
-| 6 | Nov 9 | same branch | **Board documents slice** (checklist: "attach, ask, cite"): `app/document_qa.py` shared grounded-answer core; `doc_files.project_id` + `status`; `PUT /knowledge/{source}` re-attach; board-scoped retrieval (`allowed_sources` = own + workspace-wide) incl. chat RAG; `POST /projects/{id}/ask` + `POST /knowledge/ask` with document/page/quote citations; PRD breakdown numbers brief passages (`P1..P40`) and each `CardDraft` cites `source_passages` (invented ids → 502; confirm stores per-card quotes); frontend attach select, board badges, passage lines in proposals + card details. +12 tests (**254 total**) |
+| 6 | Nov 9 | same branch | **Board documents slice** (checklist: "attach, ask, cite"): `app/document_qa.py` shared grounded-answer core; `doc_files.project_id` + `status`; `PUT /knowledge/{source}` re-attach; board-scoped retrieval (`allowed_sources` = own + workspace-ready) incl. chat RAG; `POST /projects/{id}/ask` + `POST /knowledge/ask` with document/page/quote citations; PRD breakdown numbers brief passages (`P1..P40`) and each `CardDraft` cites `source_passages` (invented ids → 502; confirm stores per-card quotes); frontend attach select, board badges, passage lines in proposals + card details. +12 tests (**254 total**). Then **first-class `/boards` API** (`GET /boards`, `GET/POST /boards/{id}/documents`, `POST /boards/{id}/ask`) with a **real ingest status lifecycle** `pending→processing→ready/failed` (phase-committed, persisted failure reasons, retry counter, restart sweep; retrieval gated to `ready`) + shared `perform_ask`; +12 tests (**266**). Then **Day 19 Groundedness Evals executed for real** against the Reference PRD (44 passages, live Groq through `gpt-oss-20b→120b` fallback under 8k TPM): harness `scripts/run_day19_evals.py` (cookie auth, evidence-chunk cause attribution, provider backoff) + `scripts/bootstrap_day19.py` + 30-question gold set; baseline 23/23/5 → **one targeted fix = IDF keyword scoring** → 24/24/5, documented in `eval/day19/eval_report.md`; +1 test net (**267**) |
 
 Current branch: `feat/document-retrieval` (off `feat/document-import`; branches also exist for
 `master`, `feat/create-card`, `feat/prd-breakdown`; remote mirrors the older ones).
@@ -528,7 +528,7 @@ Closes the "document knowledge base for the board" checklist (spec:
   is no longer dumped into the model message — the numbered passages replace it.
 - Frontend: proposal cards show "From brief passages: P1 · P3"; card details show a
   **"From the brief · source passages"** block with each quoted passage.
-- API surface now **47 operations**; tests **254**.
+- API surface now **51 operations**; tests **267** (incl. the Day-19 IDF pinning tests).
 
 ---
 
@@ -553,7 +553,7 @@ Closes the "document knowledge base for the board" checklist (spec:
 
 ---
 
-## 6. Tests — full inventory (254 passing, verified 2026-11-09 on `feat/document-retrieval`, ~75s, zero network)
+## 6. Tests — full inventory (267 passing, verified 2026-11-09 on `feat/document-retrieval`, ~80s, zero network)
 
 `tests/conftest.py` sets `ZERO_MAGIC_DB` to a temp dir **before** any app import (and refuses
 to run if the app was imported first), so the real workspace DB is never touched. All AI
@@ -570,7 +570,7 @@ calls are mocked or served through `httpx.MockTransport`; no Groq tokens are con
 | `test_workspace_regressions.py` | 6 | cross-feature contract re-checks: CRUD + partial update + comment_count + 422 trio payloads; stage rules incl. two send-back cycles; legacy comment readability + session identity + cascade delete |
 | `test_people.py` | 8 | create/list order, trim skills; edit; blank 422; assign/unassign roundtrip persistence; unknown person leaves assignment untouched; missing card 404; missing `person_id` key 422; update missing 404 |
 | `test_document_chunks.py` | 8 | page/heading/source labels; no invented Word pages; heading-only kept; Arabic/Persian normalization incl. digits; half-space kept; PDF label-line splitting with continuations; reminder-rule splitting |
-| `test_document_search.py` | 3 | relevance ordering; Persian-form query matches Arabic-form text (display text untouched); **CLI output test** (source/page/text shown) |
+| `test_document_search.py` | 5 | relevance ordering; Persian-form query matches Arabic-form text (display text untouched); **CLI output test**; **Day-19 IDF pins**: rare informative words beat boilerplate matching more common words; ties keep document order |
 | `test_document_qa.py` | 19 | **Week 5**: strict `GroundedAnswer` contract (cite-when-found, plain not-found); gold resolution incl. Persian forms; the whole failure taxonomy (retrieval miss / gold-missing-from-library / hallucinated id / uncited / retrieved-but-ignored / unsupported-citation / answered-unanswerable); mode comparison (overlap, semantic-only-gold, unavailable mode); orchestrator + `failures.md` rendering; `eval/questions.json` loads; real CLI subprocess run retrieval-only on a fresh imported DB |
 | `test_semantic_search.py` | 4 | rank by cosine; save→load→search round trip; `create_index` with fake model keeps labels + model name; `search_index` embeds question (iterator) and ranks |
 | `test_knowledge.py` | 32 | **Week 5**: PDF font-size heading detection + 3-page header/footer removal; no-structure fallback claim; structure route review-only (zero writes) + auth; save with server-side normalization; payload rejections; 409 duplicate/replace semantics; library caps (monkeypatched); list/fetch/404; delete permissions + vector cleanup in one transaction; keyword ranking/limit/Persian-Arabic query linking; semantic without vectors 409; fake-model embed (missing→all, idempotent second run, force, similarity search, listed counts); embed busy 429; missing-fastembed 503; chat citations ([K1] block, response shape, toggle off, empty library, assign ignores); injected "SYSTEM:" passage cannot trigger writes; `import_chunks` CLI subprocess (vectors + replace isolation); restart survival. **Week-6 board-docs**: attach on save (project validated, `status:ready`, unknown→404); re-attach/`PUT` move + 403 for non-importer; board scope filters retrieval (own + workspace-wide, not other boards); ask with no matching passage never calls the model and says not-found; cited `[K1]` answer with document/page/quote; provider failure→503; ask payload validation (blank/oversize/extra); `/projects/{id}/ask` board route + 404; chat knowledge respects the board |
@@ -618,7 +618,8 @@ no secrets committed, documented limitations.
   `index_documents.py`, `search_semantic.py`, **`import_chunks.py`** (library bridge),
   **`answer_questions.py`** (grounded QA + comparison + failure collection).
 - **`eval/`**: `questions.json` (tracked gold questions) + `results/` (gitignored run
-  artifacts: results.json, failures.md).
+  artifacts), + `day19/` (30-question Reference-PRD gold set, three committed result JSONs,
+  and `eval_report.md`; the local `env.json`/logs stay gitignored).
 - **`data/`**: live DB + week-4 chunk/vector JSONs + `week4-review-documents/`
   Team-Task-Reminders.pdf. **`backups/`**: one private snapshot.
 - **Env artifacts**: `.env` (key + 2 Groq gpt-oss models), `.venv` (complete: fastapi,

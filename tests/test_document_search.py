@@ -1,6 +1,28 @@
 
-def test_search_returns_matching_chunks_in_relevance_order():
+def test_search_rare_words_outrank_common_word_boilerplate():
+    """The Day 19 IDF fix, pinned: with repeated boilerplate, a chunk carrying the
+    rare informative words beats one that matched more total (common) words."""
     from app.document_search import search_chunks
+
+    chunks = [
+        {"source": "prd.pdf", "page": 1, "text": "The run of the agent run and the run."},
+        {"source": "prd.pdf", "page": 2, "text": "Maximum Agent Turns 30 failed_turn_cap."},
+        {"source": "prd.pdf", "page": 3, "text": "The agent run and the run ok."},
+        {"source": "prd.pdf", "page": 4, "text": "The agent run and the run ok."},
+        {"source": "prd.pdf", "page": 5, "text": "The agent run and the run ok."},
+    ]
+    results = search_chunks(chunks, "what is the maximum agent turns run and the run")
+    assert results[0]["page"] == 2  # rare maximum/turns/30 outweigh four common matches
+
+
+def test_search_ties_keep_document_order():
+    from app.document_search import search_chunks
+
+    chunks = [
+        {"source": "a.pdf", "page": 1, "text": "reminder policy"},
+        {"source": "b.pdf", "page": 2, "text": "reminder policy"},
+    ]
+    assert [c["source"] for c in search_chunks(chunks, "reminder policy")] == ["a.pdf", "b.pdf"]
 
     chunks = [
         {"source": "brief.pdf", "page": 1, "text": "Send a reminder."},
