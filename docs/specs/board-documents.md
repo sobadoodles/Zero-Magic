@@ -13,11 +13,26 @@ scoped planning). A "board" here is a Project. Documents with `project_id = null
 workspace-wide and remain visible to every board's retrieval as well as to unscoped ask.
 
 ## Attaching documents to a board
-- `POST /api/v1/documents/structure` (unchanged) extracts, labels, and returns reviewable
-  passages — never writes, never calls the model.
-- `POST /api/v1/knowledge` now accepts `project_id` on each document. `validate_project`
-  rejects an unknown board (404); saved records carry `status:"ready"`. A document with a
-  null project is workspace-wide.
+- **Board = Project**: this app has one shared board and Projects are its groups, so a
+  `board_id` is a project UUID (404 otherwise). New first-class router: `GET
+  /api/v1/boards` (each board with card/brief/document counts **by status**), `GET
+  /api/v1/boards/{id}/documents`, `POST /api/v1/boards/{id}/documents`, and
+  `POST /api/v1/boards/{id}/ask`. `POST /api/v1/projects/{id}/ask` stays as a
+  behaviourally identical alias; `POST /api/v1/knowledge/ask` takes an optional
+  `project_id`.
+- **Ingest with a real status lifecycle**: `POST /api/v1/boards/{id}/documents`
+  `{filename, content_base64}` runs one bounded, isolated parse (same worker as
+  `/documents/extract`; original bytes are never stored) and records the attempt:
+  `pending → processing → ready | failed`. Each phase commits separately (a concurrent
+  GET can observe `processing`; attempts interrupted mid-flight are swept to `failed`
+  with "re-upload" on next start). A **failed attempt persists on the document** with an
+  `error` reason and `attempts` count — re-uploading the same name retries it (attempts
+  increments); uploading over a non-failed existing name is 409 (delete, or use the
+  review path's replace). Retrieval, search, ask, and chat see **only `ready` documents**;
+  `allowed_sources()` gates on status as well as presence.
+- **Review path unchanged**: `POST /api/v1/documents/structure` stays read-only, and
+  `POST /api/v1/knowledge` still attaches reviewed passages with `project_id`, landing
+  directly on `status:"ready"` with `attempts:1, error:null`.
 - `PUT /api/v1/knowledge/{source_name}` `{project_id}` re-attaches a saved document to a
   different board (or detaches it). Only the importer or the workspace owner may move it
   (403 otherwise). It records no other change.
@@ -25,21 +40,24 @@ workspace-wide and remain visible to every board's retrieval as well as to unsco
   chars/passage).
 
 ## Asking a board — the grounded answer endpoint
-- `POST /api/v1/projects/{project_id}/ask` = `{question (1–2000 visible chars),
+- `POST /api/v1/boards/{board_id}/ask` (and the alias `POST
+  /api/v1/projects/{project_id}/ask`) = `{question (1–2000 visible chars),
   mode: keyword|semantic (default keyword), limit 1–8 (default 5)}`. Retrieval is scoped
-  to that board's documents plus workspace-wide ones, using the same
+  to that board's **ready** documents plus workspace-wide ones, using the same
   `knowledge.retrieve()` the library search uses.
 - `POST /api/v1/knowledge/ask` is the same answerer with an optional `project_id` in the
   body; omit it to ask the whole workspace.
-- Both share `app/document_qa.py` with the CLI, so the strict contract is identical:
-  answer ONLY from the numbered passages; every claim cites its `[K#]`; if the passages
-  don't hold the answer, `found=false` with a plain "The documents do not contain the
-  answer…" line and NO citations. When a question matches no stored passage, the
-  application answers "not found" itself without calling any model.
-- Response: `{question, project/project_id, mode, passages_consulted, found, answer,
-  model, citations:[{id, document, page, heading, quote}]}`. Unknown board → 404. A model
-  that returns a citation id that was never given is dropped server-side; the CLI's
-  evaluator flags it as a failure.
+- Both delegates call the ONE shared contract in `knowledge.perform_ask`
+  (and `app/document_qa.py`), so `/knowledge/ask`, `/projects/{id}/ask` and
+  `/boards/{id}/ask` behave identically: answer ONLY from the numbered passages; every
+  claim cites its `[K#]`; if the passages don't hold the answer, `found=false` with a
+  plain "The documents do not contain the answer…" line and NO citations. When a question
+  matches no *ready* passage, the application answers "not found" itself without calling
+  any model.
+- Response: `{question, board|project (id+name) or project_id, mode, passages_consulted,
+  found, answer, model, citations:[{id, document, page, heading, quote}]}`. Unknown
+  board → 404. A model that returns a citation id that was never given is dropped
+  server-side; the CLI's evaluator flags it as a failure.
 - Provider/configuration failure while answering → 503, never a guessed answer.
 - All routes require the existing login + same-origin JSON guards. Passage text is
   untrusted data, never instructions; approvals and card writes stay out of this path.
@@ -63,7 +81,8 @@ workspace-wide and remain visible to every board's retrieval as well as to unsco
 ## Frontend
 - The Documents dialog gained a **Attach to project** select. Extract → review → save
   attaches the passages to the chosen board (or leaves them workspace-wide). Saved rows
-  show the board's color label.
+  show the board's color label **and a status chip** (`ready` / `failed` with the reason
+  on hover + "re-upload to retry" hint / `processing·pending` with a refresh note).
 - Card details now show a **From the brief · source passages** block listing each cited
   passage id and its quote.
 - The AI proposal panel shows "From brief passages: P1 · P3" on each draft card.

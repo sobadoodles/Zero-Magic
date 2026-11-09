@@ -167,18 +167,11 @@ class ProjectAskInput(BaseModel):
 
 @router.post('/{project_id}/ask')
 def ask_project(project_id:UUID, payload:ProjectAskInput):
-    """Answer from THIS board's documents (its attached files plus workspace-wide passages).
-
-    Same strict contract as /knowledge/ask: only retrieved passages, document/page/quote
-    citations, plain not-found statement, 503 when the model path fails. The project is
-    this application's board grouping.
-    """
-    from app import knowledge
-    from app.document_qa import answer_from_passages
+    """Alias of /api/v1/boards/{id}/ask (a board is a project here): the same strict
+    grounded answer contract from knowledge.perform_ask, scoped to this project's
+    ready documents plus workspace-wide ones. Unknown project -> 404; provider failure
+    -> 503; never a guess."""
     ident = project_for(str(project_id))['id']
-    passages = knowledge.retrieve(payload.question, payload.limit, payload.mode, ident)
-    result = answer_from_passages(payload.question, passages)
-    if 'skipped' in result:
-        raise HTTPException(503, result['skipped'])
+    from app import knowledge
     return {'question':payload.question, 'project':{'id':ident,'name':storage.projects[ident]['name']},
-            'mode':payload.mode, 'passages_consulted':len(passages), **result}
+            'mode':payload.mode, **knowledge.perform_ask(payload.question, ident, payload.mode, payload.limit)}

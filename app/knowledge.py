@@ -4,10 +4,13 @@ Files themselves are never stored — only extracted, human-reviewed passages.
 Search runs keyword-first; semantic vectors are optional, produced on demand by
 the embed route. All routes require the existing local session login.
 """
+import base64
+import binascii
 import json
 import re
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -82,11 +85,14 @@ def chunk_id(source, ordinal):
 
 
 def allowed_sources(project_id):
-    """Passages attached to this project (board) plus unattached workspace-wide ones."""
+    """READY passages on this board (plus workspace-wide ready ones). pending/processing/
+    failed documents are excluded — and they hold no committed chunks anyway, so this is
+    defence in depth, not the only gate."""
     if project_id is None:
-        return None
+        return {name for name, record in doc_files.items() if record.get("status", "ready") == "ready"}
     return {name for name, record in doc_files.items()
-            if record.get("project_id") in (None, project_id)}
+            if record.get("project_id") in (None, project_id)
+            and record.get("status", "ready") == "ready"}
 
 
 def document_summary(record):
@@ -155,10 +161,13 @@ def save_library(payload: LibrarySave, user=Depends(require_user)):
             "page_count": document.page_count,
             "project_id": document.project_id,
             "status": "ready",
+            "attempts": 1,
+            "error": None,
             "chunk_count": len(document.chunks),
             "characters": sum(len(chunk.text) for chunk in document.chunks),
             "ingested_by": user["id"],
             "ingested_at": now,
+            "processed_at": now,
         }
         doc_files[name] = record
         for ordinal, chunk in enumerate(document.chunks, 1):
@@ -311,6 +320,17 @@ def search_library(payload: SearchInput):
     }
 
 
+def perform_ask(question, project_id, mode, limit):
+    """The single grounded-ask contract shared by /knowledge/ask, /projects/{id}/ask and
+    /boards/{id}/ask. Retrieves ready passages, answers strictly, and never guesses."""
+    from app.document_qa import answer_from_passages
+    passages = retrieve(question, limit, mode, project_id)
+    result = answer_from_passages(question, passages)
+    if "skipped" in result:
+        raise HTTPException(503, result["skipped"])
+    return {"passages_consulted": len(passages), **result}
+
+
 @router.post("/ask")
 def ask_library(payload: AskInput):
     """Grounded question answering over the library (optionally board-scoped).
@@ -318,13 +338,8 @@ def ask_library(payload: AskInput):
     Answers ONLY from retrieved passages, with document/page/quote citations, or a
     plain not-found statement. Provider/contract failures return 503 — never a guess.
     """
-    from app.document_qa import answer_from_passages
-    passages = retrieve(payload.question, payload.limit, payload.mode, payload.project_id)
-    result = answer_from_passages(payload.question, passages)
-    if "skipped" in result:
-        raise HTTPException(503, result["skipped"])
     return {"question": payload.question, "project_id": payload.project_id, "mode": payload.mode,
-            "passages_consulted": len(passages), **result}
+            **perform_ask(payload.question, payload.project_id, payload.mode, payload.limit)}
 
 
 class AttachInput(BaseModel):
@@ -379,6 +394,122 @@ def embed_library(payload: EmbedInput):
                     (key, json.dumps({"model": MODEL_NAME,
                                       "vector": [float(value) for value in vector]})))
         return {"embedded": len(todo), "total_chunks": len(doc_chunks), "model": MODEL_NAME,
-                "message": f"Embedded {len(todo)} passage(s). Semantic search is now available."}
+                "message": f"Embedding {len(todo)} passage(s). Semantic search is now available."}
     finally:
         embed_lock.release()
+
+
+class IngestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    filename: str = Field(min_length=1, max_length=150)
+    content_base64: str = Field(min_length=1, max_length=2_796_204)
+
+
+def _mark_failed(source_name, reason):
+    with storage.transaction():
+        record = doc_files.get(source_name)
+        if record is not None:
+            record["status"] = "failed"
+            record["error"] = str(reason)[:300]
+            record["processed_at"] = datetime.now(timezone.utc).isoformat()
+
+
+def ingest_document(payload, project_id, user):
+    """Two-phase-commit lifecycle: pending -> processing -> ready | failed.
+
+    Each phase commits separately, so a concurrent reader can observe the progression,
+    and a failed attempt PERSISTS with its reason instead of vanishing. Retrieval and ask
+    only ever see ready documents. A failed document may be re-uploaded (retried); any
+    other existing name must be removed or replaced through the review path first.
+    """
+    from app import documents
+    from app.document_chunks import chunk_document
+    from app.projects import validate_project
+
+    filename = payload.filename
+    if "/" in filename or "\\" in filename or any(ord(char) < 32 for char in filename):
+        raise HTTPException(422, "Use a filename without paths or control characters.")
+    source_name = filename.strip()
+    if not SOURCE_PATTERN.match(source_name):
+        raise HTTPException(422, "Invalid document name.")
+    suffix = Path(source_name).suffix.lower()
+    if suffix not in (".pdf", ".docx"):
+        raise HTTPException(415, "The library ingests .pdf or .docx files only.")
+    validate_project(project_id)
+
+    existing = doc_files.get(source_name)
+    if existing is not None and existing.get("status") != "failed":
+        raise HTTPException(409, f"{source_name} is already in the library. "
+                                 "Remove it first, or use review-and-replace.")
+    documents.reserve(user["id"])
+
+    now = datetime.now(timezone.utc).isoformat()
+    with storage.transaction():
+        if existing is None:
+            doc_files[source_name] = {
+                "source_name": source_name, "format": suffix[1:], "project_id": project_id,
+                "status": "pending", "attempts": 0, "error": None,
+                "page_count": None, "chunk_count": 0, "characters": 0,
+                "ingested_by": user["id"], "ingested_at": now, "processed_at": None,
+            }
+        else:
+            doc_files[source_name]["status"] = "pending"
+            doc_files[source_name]["error"] = None
+    with storage.transaction():
+        doc_files[source_name]["status"] = "processing"
+        doc_files[source_name]["attempts"] += 1
+
+    try:
+        try:
+            data = base64.b64decode(payload.content_base64, validate=True)
+        except (ValueError, binascii.Error):
+            raise HTTPException(422, "The uploaded document encoding is invalid. Choose the file again.")
+        if not data or len(data) > documents.MAX_FILE:
+            raise HTTPException(413, "Choose a non-empty document no larger than 2 MB.")
+        result = documents.parse_document(data, suffix, structured=True)
+        pages = result.pop("pages", [])
+        chunks = chunk_document(source_name, {"pages": pages})
+        if not chunks:
+            raise HTTPException(422, "No readable passages were extracted from this document.")
+    except HTTPException as error:
+        _mark_failed(source_name, error.detail)
+        raise
+    except Exception as error:
+        _mark_failed(source_name, error)
+        raise HTTPException(422, "The document could not be ingested safely.")
+
+    with storage.transaction():
+        for ordinal, chunk in enumerate(chunks, 1):
+            key = chunk_id(source_name, ordinal)
+            doc_chunks[key] = {
+                "id": key, "source": source_name, "page": chunk["page"],
+                "heading": chunk.get("heading") or None, "text": chunk["text"],
+                "text_normalized": normalize_for_search(chunk["text"]), "ordinal": ordinal,
+            }
+        record = doc_files[source_name]
+        record.update({
+            "status": "ready", "error": None,
+            "page_count": result.get("page_count"),
+            "chunk_count": len(chunks),
+            "characters": sum(len(chunk["text"]) for chunk in chunks),
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {**document_summary(record), "warnings": result.get("warnings", [])}
+
+
+def _recover_interrupted_ingests():
+    """A previous process can leave half-finished attempts; they never resume."""
+    stuck = [name for name, record in doc_files.items() if record.get("status") in ("pending", "processing")]
+    if not stuck:
+        return
+    for name in stuck:
+        doc_files[name].update({
+            "status": "failed",
+            "error": "The ingest was interrupted by a server restart. Re-upload the file.",
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+        })
+    with storage.transaction():
+        pass  # the flush persists the sweep
+
+
+_recover_interrupted_ingests()

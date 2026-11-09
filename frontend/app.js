@@ -829,8 +829,15 @@ function renderKnowledge(){
   for(const doc of state.knowledgeDocs){
     const row=node("div","knowledge-doc");
     const info=node("div","knowledge-doc-copy");
-    info.append(node("strong","",doc.source_name),node("p","",`${doc.chunk_count} passages · ${doc.page_count ? doc.page_count+" pages · " : ""}${doc.embedded_chunks}/${doc.chunk_count} embedded · ${doc.characters.toLocaleString()} characters · ${doc.status || "ready"}`));
+    const docStatus = doc.status || "ready";
+    const statusChip = node("span",`doc-status doc-${docStatus}`,docStatus);
+    if(doc.error)statusChip.title=doc.error;
+    const head=node("div","knowledge-doc-head");head.append(node("strong","",doc.source_name),statusChip);
+    info.append(head);
     if(doc.project_id)info.append(projectBadge(doc.project_id,false));
+    if(docStatus==="failed")info.append(node("p","","Ingest failed: "+(doc.error||"see details")+" · re-upload the same file name to retry."));
+    else if(docStatus==="processing"||docStatus==="pending")info.append(node("p","","Ingesting… open this dialog again shortly to see the result."));
+    else info.append(node("p","",`${doc.chunk_count} passages · ${doc.page_count ? doc.page_count+" pages · " : ""}${doc.embedded_chunks}/${doc.chunk_count} embedded · ${doc.characters.toLocaleString()} characters`));
     row.append(info);
     if(knowledgeCanDelete(doc)){
       const remove=button("Remove","button-danger");remove.setAttribute("aria-label",`Remove ${doc.source_name}`);
