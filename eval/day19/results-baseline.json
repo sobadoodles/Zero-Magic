@@ -1,0 +1,341 @@
+{
+  "mode": "keyword",
+  "top": 5,
+  "scores": {
+    "retrieval": [
+      25,
+      25
+    ],
+    "groundedness": [
+      23,
+      25
+    ],
+    "refusal": [
+      5,
+      5
+    ]
+  },
+  "failures_by_cause": {
+    "generation": [
+      "Q13",
+      "Q19"
+    ]
+  },
+  "results": [
+    {
+      "id": "Q01",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "Git is the authoritative source of truth for all code, branches, diffs, continuous integration (CI) status, and merges in Zero Magic.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q02",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "No, the coding agent that builds a card cannot validate or approve that same card.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q03",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "No, a card cannot merge to main automatically; even if automated CI checks and the reviewer agent pass all acceptance criteria, a human actor must trigger the final transition to Done.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q04",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "On the Zero Magic board, \"My Cards\" is represented as a query filter rather than a board column, and each card can have exactly one assignee at any time.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q05",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "Spec, Ready, Building, Checks, Validation, Done",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q06",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "An illegal stage jump returns HTTP 409 Conflict, while a malformed schema payload returns HTTP 422 Unprocessable Entity.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q07",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "A card in the 'Checks' stage can transition next to the 'Validation' stage.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q08",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "If a coding agent in the Building stage encounters an ambiguous specification, it must stop immediately and post a question in the card comments rather than guessing.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q09",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The runner resumes the existing agent session ID, preserving prior context and feedback.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q10",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The maximum file size is 10 MB per document, and the accepted formats are PDF (.pdf), Microsoft Word (.docx), and Markdown (.md).",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q11",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The four ingestion lifecycle states are pending, processing, ready, and failed. If the server crashes while a document is in the processing state, a startup recovery sweep will mark any stranded processing documents as failed, recording a diagnostic reason.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q12",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The ingestion pipeline uses structure‑aware chunking, splitting documents at natural boundaries such as sections, headings and numbered clauses, and each chunk keeps its source ID, page and heading. For Persian text it normalizes Arabic Yeh and Kaf characters to the standard Persian forms, preserves zero‑width non‑joiners (half‑spaces), and converts numerals consistently.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q13",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": false,
+      "found": true,
+      "answer": "When no relevant passages are retrieved, the endpoint returns a plain not‑found refusal directly without invoking the language model.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": "generation (refused an answerable question)"
+    },
+    {
+      "id": "Q14",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "If the model invents a non‑existent source_passages ID, the backend aborts the breakdown and returns an HTTP 502 Bad Gateway response, and no draft cards are written.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q15",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The POST /api/v1/prds/{id}/breakdown endpoint enforces a 30‑second execution timeout and a per‑user rate limit of 5 requests per minute.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q16",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "Board assistant write tools do not mutate state directly; instead they return a structured preview payload that requires explicit human confirmation before execution, whereas read tools execute immediately within the turn loop.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q17",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The board assistant caps conversation history at 15 turns per session, and any instructions embedded in uploaded documents or card comments are treated as untrusted data that cannot trigger write tool calls.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q18",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The background worker polls for Ready cards every 5 seconds and creates the Git worktree at ../wt/card-<id> on branch card/<id>.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q19",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": false,
+      "found": false,
+      "answer": "The documents do not contain the answer, missing information about the maximum number of turns allowed for a headless coding agent run and what happens if it is exceeded.",
+      "cited_count": 0,
+      "retrieved_count": 5,
+      "cause": "generation (refused an answerable question)"
+    },
+    {
+      "id": "Q20",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The wall‑clock execution timeout is 15 minutes (900 seconds) and the maximum cost budget is $1.50 USD per card run.",
+      "cited_count": 2,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q21",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "Read, Edit, Write, Bash(pytest:*)",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q22",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "A human user's JWT is valid for 8 hours. Agent tokens are forbidden from approving a spec in the Spec stage and from moving a card from Validation to Done.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q23",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The Gitea Actions CI workflow automatically runs the following security scanning tools: bandit (Python static analysis), pip-audit, npm audit, and Gitleaks secret scanning.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q24",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "The production deployment uses the python:3.12-slim Docker image for the FastAPI backend and PostgreSQL version 16 for the database.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q25",
+      "type": "answerable",
+      "retrieval_pass": true,
+      "grounded_pass": true,
+      "found": true,
+      "answer": "No, native Slack notifications and Kubernetes autoscaling are not supported in version 1.0; they are planned for v2.0 and excluded from the current implementation.",
+      "cited_count": 1,
+      "retrieved_count": 5,
+      "cause": null
+    },
+    {
+      "id": "Q26",
+      "type": "refusal",
+      "refusal_pass": true,
+      "found": false,
+      "answer": "The documents do not contain the answer, monthly AWS EC2 hosting bill budget for running the Gitea server.",
+      "cause": null
+    },
+    {
+      "id": "Q27",
+      "type": "refusal",
+      "refusal_pass": true,
+      "found": false,
+      "answer": "The documents do not contain the answer, specifically the SMTP email provider used for password reset emails.",
+      "cause": null
+    },
+    {
+      "id": "Q28",
+      "type": "refusal",
+      "refusal_pass": true,
+      "found": false,
+      "answer": "The documents do not contain the answer, missing the minimum CPU and RAM hardware specification required on the developer's laptop.",
+      "cause": null
+    },
+    {
+      "id": "Q29",
+      "type": "refusal",
+      "refusal_pass": true,
+      "found": false,
+      "answer": "The documents do not contain the answer, missing information about vacation days for interns.",
+      "cause": null
+    },
+    {
+      "id": "Q30",
+      "type": "refusal",
+      "refusal_pass": true,
+      "found": false,
+      "answer": "The documents do not contain the answer, missing the hex color code for dark mode backgrounds in the PrimeVue theme.",
+      "cause": null
+    }
+  ]
+}

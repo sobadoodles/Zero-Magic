@@ -19,3 +19,5 @@ workspace-export*.json
 *.sqlite3-shm
 # QA run artifacts (local evaluation output)
 eval/results/
+eval/day19/env.json
+eval/day19/*-log.txt
