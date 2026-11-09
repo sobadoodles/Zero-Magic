@@ -409,6 +409,85 @@ def test_assign_mode_ignores_knowledge(client, monkeypatch):
 
 # --- persistence -----------------------------------------------------------------
 
+def run_import(env_db, tmp_path, arguments):
+    return subprocess.run(
+        [sys.executable, '-m', 'scripts.import_chunks', *arguments],
+        cwd=Path(__file__).resolve().parent.parent,
+        env={**os.environ, 'ZERO_MAGIC_DB': env_db},
+        capture_output=True, text=True, encoding='utf-8')
+
+
+def test_import_chunks_cli_loads_library_with_vectors(tmp_path):
+    db = str(tmp_path / 'import.sqlite3')
+    chunks = [
+        {"source": "alpha.pdf", "page": 1, "heading": "Rules", "text": "Reminder rule: send one day before."},
+        {"source": "alpha.pdf", "page": 2, "heading": None, "text": "شماره یادآوری ۱۲۳"},
+        {"source": "beta.docx", "page": None, "heading": None, "text": "Members can update their profile."},
+    ]
+    index = {"model": knowledge.MODEL_NAME, "chunks": chunks,
+             "vectors": [[1.0, 0.0], [0.0, 1.0], [0.5, 0.5]]}
+    chunks_file = tmp_path / 'chunks.json'
+    chunks_file.write_text(json.dumps(chunks, ensure_ascii=False), encoding='utf-8')
+    index_file = tmp_path / 'index.json'
+    index_file.write_text(json.dumps(index), encoding='utf-8')
+
+    first = run_import(db, tmp_path, [str(chunks_file), '--index', str(index_file)])
+    assert first.returncode == 0, first.stdout + first.stderr
+
+    code = '''
+import json
+from app import storage
+assert set(storage.doc_files) == {"alpha.pdf", "beta.docx"}, list(storage.doc_files)
+assert storage.doc_files["alpha.pdf"]["chunk_count"] == 2
+assert storage.doc_files["alpha.pdf"]["page_count"] == 2
+chunk = storage.doc_chunks["alpha.pdf::00002"]
+assert chunk["text"] == "شماره یادآوری ۱۲۳"
+assert "123" in chunk["text_normalized"] and "۱۲۳" not in chunk["text_normalized"]
+with storage.connection() as db:
+    assert db.execute("SELECT COUNT(*) FROM doc_vectors").fetchone()[0] == 3
+print("import ok")
+'''
+    verify = subprocess.run([sys.executable, '-c', code],
+                            cwd=Path(__file__).resolve().parent.parent,
+                            env={**os.environ, 'ZERO_MAGIC_DB': db},
+                            capture_output=True, text=True)
+    assert verify.returncode == 0, verify.stdout + verify.stderr
+
+    again = run_import(db, tmp_path, [str(chunks_file)])
+    assert again.returncode != 0 and 'replace' in again.stderr.lower()
+
+
+def test_import_chunks_replace_rebuilds_only_named_sources(tmp_path):
+    db = str(tmp_path / 'replace.sqlite3')
+    chunks_file = tmp_path / 'chunks.json'
+    chunks_file.write_text(json.dumps([
+        {"source": "alpha.pdf", "page": 1, "heading": None, "text": "First passage."},
+        {"source": "beta.docx", "page": None, "heading": None, "text": "Other document passage."},
+    ]), encoding='utf-8')
+    assert run_import(db, tmp_path, [str(chunks_file)]).returncode == 0
+
+    chunks_file.write_text(json.dumps([
+        {"source": "alpha.pdf", "page": 1, "heading": "Rewritten", "text": "Single rebuilt passage."},
+    ]), encoding='utf-8')
+    replaced = run_import(db, tmp_path, [str(chunks_file), '--replace'])
+    assert replaced.returncode == 0, replaced.stdout + replaced.stderr
+
+    code = '''
+from app import storage
+assert set(storage.doc_files) == {"alpha.pdf", "beta.docx"}
+alphas = [c for c in storage.doc_chunks.values() if c["source"] == "alpha.pdf"]
+assert len(alphas) == 1 and alphas[0]["heading"] == "Rewritten"
+betas = [c for c in storage.doc_chunks.values() if c["source"] == "beta.docx"]
+assert len(betas) == 1
+print("replace ok")
+'''
+    verify = subprocess.run([sys.executable, '-c', code],
+                            cwd=Path(__file__).resolve().parent.parent,
+                            env={**os.environ, 'ZERO_MAGIC_DB': db},
+                            capture_output=True, text=True)
+    assert verify.returncode == 0, verify.stdout + verify.stderr
+
+
 def test_library_survives_process_restart(client):
     save_chunks(client)
     with storage.transaction() as db:

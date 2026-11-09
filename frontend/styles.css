@@ -13,7 +13,33 @@ dialog{color:var(--ink);background:var(--panel);border:1px solid var(--line);bor
 
 @media(max-width:760px){.assistant-panel{padding:16px}.assistant-panel .dialog-header h2{font-size:26px}.assistant-tools{width:100%}.assistant-tools button{flex:1}.chat-actions>[type=submit]{margin-left:auto}.thread-messages{height:280px;max-height:36dvh}.proposal-panel{padding:12px}.proposal-items{max-height:220px}.assistant-panel:has(.proposal-panel:not([hidden])) .chat-history{height:140px;min-height:100px}.thread-copy>p{padding:12px}.thread-message{gap:8px}}
 
-/* Account gate and compact conversations */
+/* Knowledge library and answer citations */
+#knowledge-dialog{width:min(840px,calc(100vw - 24px))}
+.knowledge-import{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0}
+.knowledge-import .file-button{display:inline-flex;align-items:center}
+.knowledge-pending{max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:4px 16px;margin:8px 0;background:var(--bg)}
+.knowledge-group{border-bottom:1px solid var(--line);padding:12px 0}
+.knowledge-group:last-child{border-bottom:0}
+.knowledge-group>strong{font-size:15px;overflow-wrap:anywhere}
+.knowledge-group>button{margin-top:8px;font-size:12px}
+.knowledge-chunk{display:grid;gap:4px;padding:8px 0;border-top:1px dashed var(--line)}
+.knowledge-chunk-ref{font:12px var(--mono);color:var(--accent);overflow-wrap:anywhere}
+.knowledge-chunk-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}
+.knowledge-savebar{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:12px 0}
+.replace-label{display:flex;align-items:center;gap:8px;margin:0;font-size:14px;font-weight:400}
+.replace-label input{width:auto;min-height:auto}
+#knowledge-list .knowledge-doc{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.knowledge-doc-copy{flex:1;min-width:0}
+.knowledge-doc-copy p{margin:4px 0 0;font-size:14px;color:var(--muted)}
+.knowledge-search-row{display:flex;gap:8px}
+.knowledge-search-row input{flex:1;min-width:0}
+#knowledge-results{margin:8px 0}
+.citation-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.citation{font-size:12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);max-width:100%}
+.citation summary{cursor:pointer;padding:6px 10px;font-family:var(--mono);color:var(--accent);overflow-wrap:anywhere}
+.citation p{margin:0;padding:0 10px 8px 10px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted)}
+.toggle-active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+@media(max-width:760px){.knowledge-import{width:100%}.knowledge-import .file-button,.knowledge-import button{flex:1;justify-content:center}.knowledge-search-row{flex-wrap:wrap}}
 .auth-screen{min-height:100dvh;max-width:1160px;margin:auto;display:grid;grid-template-columns:1.1fr 1fr;align-items:center;gap:64px;padding:48px}.auth-brand h1{font-size:clamp(36px,4.5vw,56px);line-height:1.1}.auth-brand>.muted{margin-top:24px}.auth-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:32px}.auth-card h2{font-size:32px}.auth-card form>button{margin-top:16px;width:100%}.auth-card input{min-width:0}.auth-card .small{font-size:14px}.account-button{display:flex;gap:8px;align-items:center;max-width:220px;background:transparent}.header-actions .avatar{margin:0;color:var(--accent)}.header-actions .account-name{margin:0;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.account-button .avatar{flex-shrink:0}.person-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:140px}.login-label{display:block;font-size:12px;color:var(--accent);margin-top:4px}.composer-identity{display:flex;align-items:center;gap:8px;margin:8px 0}.composer-identity>span:last-child{font-size:14px;font-weight:600;overflow-wrap:anywhere}#thread-text{min-height:72px}#thread-form .form-actions{margin-top:12px}#thread-form{padding-top:12px}#invite-url{font:14px/1.5 var(--mono)}
 @media(max-width:760px){.auth-screen{display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:24px;padding:24px 16px;min-height:100dvh}.auth-brand h1{font-size:36px}.auth-brand>.muted{display:none}.auth-brand .eyebrow{font-size:11px}.auth-card{padding:24px}.auth-card h2{font-size:28px}.person-actions{max-width:75px}.account-button{max-width:175px}.thread-messages{max-height:38dvh}.thread-panel>p.small{font-size:14px}}
 

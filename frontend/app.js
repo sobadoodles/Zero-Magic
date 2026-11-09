@@ -2,7 +2,7 @@
 const $ = selector => document.querySelector(selector);
 const STAGES = ["Spec", "Ready", "Building", "Checks", "Validation", "Done"];
 const MOVES = {Spec:["Ready"], Ready:["Building"], Building:["Checks"], Checks:["Validation","Building"], Validation:["Done","Building"], Done:[]};
-const state = {projects:[], chatProjectId:null, projectEdit:null, deletion:null, cards:[], people:[], peopleReady:false, selected:null, opener:null, detailsVersion:0, loadVersion:0, history:[], chatBusy:false, personEdit:null, chatId:crypto.randomUUID(), proposal:null, lastCreated:[], threadId:null, threadVersion:0, threadBusy:false, selectedPRD:null, briefEdit:null, briefs:[], briefSource:"Pasted brief", authEpoch:0, user:null, authMode:"login", inviteToken:null};
+const state = {projects:[], chatProjectId:null, projectEdit:null, deletion:null, cards:[], people:[], peopleReady:false, selected:null, opener:null, detailsVersion:0, loadVersion:0, history:[], chatBusy:false, personEdit:null, chatId:crypto.randomUUID(), proposal:null, lastCreated:[], threadId:null, threadVersion:0, threadBusy:false, selectedPRD:null, briefEdit:null, briefs:[], briefSource:"Pasted brief", authEpoch:0, user:null, authMode:"login", inviteToken:null, useKnowledge:false, knowledgeDocs:[], knowledgePending:[], knowledgeBusy:false};
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -20,7 +20,7 @@ function notify(target, text = "", error = false) {
 async function api(path, options = {}) {
   const epoch=state.authEpoch;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), (path.includes("/assistant/chat") || path.endsWith("/breakdown")) ? 135000 : 20000);
+  const timer = setTimeout(() => controller.abort(), path.endsWith("/knowledge/embed") ? 600000 : (path.includes("/assistant/chat") || path.endsWith("/breakdown")) ? 135000 : 20000);
   try {
     const response = await fetch(path, {cache:"no-store", credentials:"same-origin", ...options, signal:controller.signal});
     const raw = response.status === 204 ? "" : await response.text();
@@ -55,6 +55,7 @@ function showDialog(dialog, opener) {
 function closeDialog(dialog) {
   if(dialog.id==="brief-dialog" && state.briefBusy)return;
   if(dialog.id==="project-delete-dialog" && state.deleting)return;
+  if(dialog.id==="knowledge-dialog" && state.knowledgeBusy)return;
   if(dialog.id==="brief-dialog" && state.briefDirty && !confirm("Close without saving these brief edits?"))return;
   if (dialog.querySelector(".inline-editor [type=submit]:disabled")) return;
   if (dialog.querySelector(".inline-editor") && !confirm("Discard the unsaved field edit?")) return;
@@ -435,14 +436,26 @@ function drawChat() {
     const bubble=node("div",`chat-bubble ${m.role}`);bubble.append(node("strong","chat-speaker",m.role==="user" ? "You" : "Planning partner"));
     const body=node("div",m.role==="assistant" ? "markdown" : "user-message");
     if(m.role==="assistant")markdown(body,m.display || m.content);else body.textContent=m.display || m.content;
-    bubble.append(body);history.append(bubble);
+    bubble.append(body);
+    if(m.role==="assistant" && m.citations && m.citations.length){
+      const row=node("div","citation-row");
+      for(const citation of m.citations){
+        const chip=document.createElement("details");chip.className="citation";
+        const summary=document.createElement("summary");
+        summary.textContent=`${citation.id} · ${citation.source}${citation.page?` · p.${citation.page}`:""}${citation.heading?` · ${citation.heading}`:""}`;
+        chip.append(summary,node("p","",citation.excerpt));
+        row.append(chip);
+      }
+      bubble.append(row);
+    }
+    history.append(bubble);
   }
   history.scrollTop=history.scrollHeight;
   requestAnimationFrame(()=>{history.scrollTop=history.scrollHeight;});
 }
 function setChatBusy(busy) {
   state.chatBusy=busy;
-  for(const selector of ["#chat-form [type=submit]","#clear-chat","#preview-plan","#suggest-assignments","#chat-input","#brief-open","#brief-detach","#chat-project"])$(selector).disabled=busy;
+  for(const selector of ["#chat-form [type=submit]","#clear-chat","#preview-plan","#suggest-assignments","#use-knowledge","#chat-input","#brief-open","#brief-detach","#chat-project"])$(selector).disabled=busy;
   $("#proposal-panel").querySelectorAll("button").forEach(b=>{b.disabled=busy;});
 }
 async function chatAction(work) {
@@ -522,11 +535,13 @@ async function requestAssistant(content,mode="discuss",targets=[]) {
     }else{
       result=await api("/api/v1/assistant/chat",json("POST",{
         conversation_id:state.chatId,mode,target_card_ids:targets,messages,project_id:state.chatProjectId,
+        use_knowledge:state.useKnowledge && mode==="discuss",
         ...(state.selectedPRD && mode!=="assign" ? {prd_id:state.selectedPRD.id,prd_revision:state.selectedPRD.revision} : {}),
       }));
     }
+    result.citations = result.citations || [];
     const context=result.proposal ? `\nDraft proposal data (not applied): ${JSON.stringify(result.proposal.data)}` : "";
-    state.history.push({role:"assistant",content:result.message+context,display:result.message});
+    state.history.push({role:"assistant",content:result.message+context,display:result.message,citations:result.citations});
     state.proposal=result.proposal || null;drawChat();renderProposal();
     notify("#chat-message",`${result.model === "application" ? "Workspace" : "Answered by "+result.model}. No changes applied by this message.`);
   }catch(error){state.history=previous;drawChat();throw error;}
@@ -601,6 +616,7 @@ async function enterWorkspace(user) {
 }
 function expireSession() {
   state.selectedPRD=null;state.briefs=[];state.projects=[];state.chatProjectId=null;renderProjectOptions();renderBriefSelection();
+  state.knowledgeDocs=[];state.knowledgePending=[];renderKnowledgePending();
   state.authEpoch++;state.user=null;state.cards=[];state.people=[];state.history=[];state.proposal=null;
   state.threadId=null;state.threadVersion++;state.loadVersion++;state.chatId=crypto.randomUUID();
   state.lastCreated=[];$("#suggest-assignments").hidden=true;drawChat();renderProposal();
@@ -799,6 +815,120 @@ $("#brief-detach").addEventListener("click",()=>chatAction(async()=>{
   if(state.history.length && !confirm("Remove this brief and start a fresh conversation? Saved work stays unchanged."))return;
   await resetBriefConversation(null);
 }));
+// Knowledge library: review extracted passages before saving; chat quotes them.
+function knowledgeCanDelete(doc){return state.user && (state.user.is_admin || doc.ingested_by===state.user.id);}
+function renderKnowledge(){
+  const list=$("#knowledge-list");list.replaceChildren();
+  if(!state.knowledgeDocs.length)list.append(node("p","muted","No saved documents yet. Extract a PDF or Word file above and review its passages."));
+  for(const doc of state.knowledgeDocs){
+    const row=node("div","knowledge-doc");
+    const info=node("div","knowledge-doc-copy");
+    info.append(node("strong","",doc.source_name),node("p","",`${doc.chunk_count} passages · ${doc.page_count ? doc.page_count+" pages · " : ""}${doc.embedded_chunks}/${doc.chunk_count} embedded · ${doc.characters.toLocaleString()} characters`));
+    row.append(info);
+    if(knowledgeCanDelete(doc)){
+      const remove=button("Remove","button-danger");remove.setAttribute("aria-label",`Remove ${doc.source_name}`);
+      remove.addEventListener("click",()=>action(remove,"#knowledge-message",async()=>{
+        if(!confirm(`Remove ${doc.source_name} and its passages from the library? Cards and briefs are not affected.`))return;
+        await api(`/api/v1/knowledge/${encodeURIComponent(doc.source_name)}`,{method:"DELETE"});
+        await loadKnowledge();notify("#knowledge-message","Document removed. Its vectors were cleaned with it.");
+      }));
+      row.append(remove);
+    }
+    list.append(row);
+  }
+}
+function renderKnowledgePending(){
+  const box=$("#knowledge-pending");box.replaceChildren();
+  $("#knowledge-savebar").hidden=!state.knowledgePending.length || state.knowledgeBusy;
+  for(const [index,doc] of state.knowledgePending.entries()){
+    const group=node("article","knowledge-group");
+    group.append(node("strong","",`${doc.source_name} · ${doc.chunks.length} passages`));
+    for(const warning of doc.warnings || [])group.append(node("p","muted small","",warning));
+    for(const chunk of doc.chunks){
+      const line=node("div","knowledge-chunk");
+      line.append(node("span","knowledge-chunk-ref",`${chunk.page?`page ${chunk.page}`:"no page"}${chunk.heading?` · ${chunk.heading}`:""}`),node("span","knowledge-chunk-text",chunk.text));
+      group.append(line);
+    }
+    const drop=button("Skip this file");drop.addEventListener("click",()=>{state.knowledgePending.splice(index,1);renderKnowledgePending();});
+    group.append(drop);box.append(group);
+  }
+  box.hidden=!state.knowledgePending.length;
+  if(state.knowledgePending.length)$("#knowledge-save").textContent=`Add ${state.knowledgePending.length} document(s) to library`;
+}
+async function loadKnowledge(){
+  const info=await api("/api/v1/knowledge");
+  state.knowledgeDocs=info.documents;renderKnowledge();
+}
+function setKnowledgeBusy(busy){
+  state.knowledgeBusy=busy;
+  for(const id of ["#knowledge-files","#knowledge-embed","#knowledge-save","#knowledge-replace","#knowledge-search-button"])$(id).disabled=busy;
+  renderKnowledgePending();
+}
+$("#knowledge-open").addEventListener("click",event=>{
+  showDialog($("#knowledge-dialog"),event.currentTarget);
+  renderKnowledgePending();
+  loadKnowledge().catch(e=>notify("#knowledge-message",e.message,true));
+});
+$("#knowledge-files").addEventListener("change",async event=>{
+  const files=[...event.currentTarget.files];event.currentTarget.value="";
+  if(!files.length || state.knowledgeBusy)return;
+  setKnowledgeBusy(true);
+  try{
+    for(const file of files){
+      if(!/\.(pdf|docx)$/i.test(file.name))throw new Error("The library imports .pdf or .docx files. Use Add brief for .txt/.md.");
+      if(!file.size)throw new Error(`${file.name} is empty.`);
+      if(file.size>2*1024*1024)throw new Error(`${file.name} is larger than 2 MB.`);
+      if(file.name.length>150)throw new Error("Shorten the filename to 150 characters or fewer.");
+      notify("#knowledge-message",`Extracting ${file.name} on your Python server… ${state.knowledgePending.length+1} of ${files.length}`);
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      let encoded="";for(let i=0;i<bytes.length;i+=32768)encoded+=String.fromCharCode(...bytes.subarray(i,i+32768));
+      const doc=await api("/api/v1/documents/structure",json("POST",{filename:file.name,content_base64:btoa(encoded)}));
+      if(!Array.isArray(doc.chunks) || !doc.chunks.length)throw new Error(`${file.name} produced no passages to review.`);
+      state.knowledgePending.push(doc);
+    }
+    notify("#knowledge-message","Review the passages above. Nothing is saved until you press Add to library.");
+  }catch(error){notify("#knowledge-message",`${error.message} Files parsed before the failure stay ready for review.`,true);}
+  finally{setKnowledgeBusy(false);}
+});
+$("#knowledge-save").addEventListener("click",event=>action(event.currentTarget,"#knowledge-message",async()=>{
+  if(!state.knowledgePending.length)return;
+  const result=await api("/api/v1/knowledge",json("POST",{
+    replace:$("#knowledge-replace").checked,
+    documents:state.knowledgePending.map(doc=>({
+      source_name:doc.source_name,format:doc.format,page_count:doc.page_count,
+      chunks:doc.chunks.map(chunk=>({page:chunk.page,heading:chunk.heading,text:chunk.text})),
+    })),
+  }));
+  state.knowledgePending=[];renderKnowledgePending();await loadKnowledge();
+  notify("#knowledge-message",`${result.message} Turn on 📚 Library in Plan with AI to quote them.`);
+}));
+$("#knowledge-embed").addEventListener("click",event=>action(event.currentTarget,"#knowledge-message",async()=>{
+  notify("#knowledge-message","Embedding passages locally… the first run may download the multilingual model (about 80 MB).");
+  const result=await api("/api/v1/knowledge/embed",json("POST",{}));
+  await loadKnowledge();notify("#knowledge-message",result.message);
+}));
+$("#knowledge-search-form").addEventListener("submit",event=>{
+  event.preventDefault();
+  action(event.currentTarget.querySelector("[type=submit]"),"#knowledge-message",async()=>{
+    const query=$("#knowledge-query").value.trim();if(!query)return;
+    notify("#knowledge-message");
+    const results=await api("/api/v1/knowledge/search",json("POST",{query,limit:8}));
+    const box=$("#knowledge-results");box.replaceChildren();
+    if(!results.results.length)box.append(node("p","muted","No passages matched. Keyword search compares word forms; try the Embed button for semantic matching."));
+    for(const hit of results.results){
+      const line=node("div","knowledge-chunk");
+      line.append(node("span","knowledge-chunk-ref",`${hit.source}${hit.page?` · p.${hit.page}`:""}${hit.heading?` · ${hit.heading}`:""}${hit.similarity!==undefined?` · ${Math.round(hit.similarity*100)}% similar`:hit.matches!==undefined?` · ${hit.matches} words`:""}`),node("span","knowledge-chunk-text",hit.text));
+      box.append(line);
+    }
+  });
+});
+$("#use-knowledge").addEventListener("click",event=>{
+  state.useKnowledge=!state.useKnowledge;
+  event.currentTarget.textContent=state.useKnowledge ? "📚 Library on" : "📚 Library off";
+  event.currentTarget.setAttribute("aria-pressed",String(state.useKnowledge));
+  event.currentTarget.classList.toggle("toggle-active",state.useKnowledge);
+  notify("#chat-message",state.useKnowledge ? "Answers may quote saved passages with [K1]-style citations when they match your question. Passages are untrusted text; approvals stay separate." : "Knowledge passages off. Plain conversation.");
+});
 async function start() {
   const token=new URLSearchParams(location.hash.slice(1)).get("invite");
   if(token){
