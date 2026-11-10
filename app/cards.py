@@ -13,14 +13,15 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/v1/cards", tags=["Cards"], dependencies=[Depends(require_user)])
-ALLOWED_TRANSITIONS = {
-    "Spec": {"Ready"},
-    "Ready": {"Building"},
-    "Building": {"Checks"},
-    "Checks": {"Validation", "Building"},
-    "Validation": {"Done", "Building"},
-    "Done": set(),
-}
+
+# Week 5 three-tier: the rules moved to app/domain/card_state.py; these names
+# are re-exported so existing consumers (assistant staging, tests) are unchanged.
+from app.domain.card_state import ALLOWED_TRANSITIONS, legal_next, transition_error  # noqa: E402
+
+
+def _stage_of(card_id):
+    card = storage.cards.get(card_id)
+    return card["stage"] if card else None
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 @storage.synchronized
@@ -169,30 +170,10 @@ def change_card_stage(card_id: int, payload: CardStageUpdate):
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
 
-    current_stage = card["stage"]
     requested_stage = payload.stage.value
-
-    if requested_stage not in ALLOWED_TRANSITIONS[current_stage]:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Cannot move card from {current_stage} "
-                f"to {requested_stage}"
-            ),
-        )
-
-    if requested_stage == "Building":
-        blocked = [
-            dependency_id
-            for dependency_id in card.get("depends_on", [])
-            if storage.cards.get(dependency_id, {}).get("stage") != "Done"
-        ]
-        if blocked:
-            raise HTTPException(
-                status_code=409,
-                detail="Finish prerequisite cards first: "
-                + ", ".join(f"#{dependency_id}" for dependency_id in blocked),
-            )
+    refusal = transition_error(card, requested_stage, stage_of=_stage_of)
+    if refusal is not None:
+        raise HTTPException(status_code=refusal[0], detail=refusal[1])
 
     card["stage"] = requested_stage
     return card

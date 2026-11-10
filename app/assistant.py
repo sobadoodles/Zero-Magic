@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from app import cards, storage, team
 from app.llm import ModelUnavailableError, ask_model, ask_model_tools
 from app.schemas import CardCreate, CardStageUpdate, CommentCreate, NonBlankText
-from app.cards import ALLOWED_TRANSITIONS
+from app.domain.card_state import blocked_prerequisites, legal_next
 
 router = APIRouter(prefix="/api/v1/assistant", tags=["Assistant"], dependencies=[Depends(require_user)])
 PROPOSAL_TTL = 1800
@@ -476,7 +476,7 @@ AGENT_TOOLS = [
 
 
 def _legal_next_stages(card):
-    return sorted(ALLOWED_TRANSITIONS.get(card["stage"], set()))
+    return legal_next(card["stage"])
 
 
 def run_read_tool(name, args, project_id):
@@ -529,13 +529,12 @@ def stage_write_tool(name, args, project_id, staged):
             if card is None:
                 return None, "That card does not exist; I cannot move it."
             target = args.get("stage")
-            legal = ALLOWED_TRANSITIONS.get(card["stage"], set())
-            if target not in legal:
+            if target not in legal_next(card["stage"]):
                 return None, (f"Illegal move: {card['stage']} -> {target}. "
                               f"Allowed next: {_legal_next_stages(card) or 'none (terminal)'}.")
             if target == "Building":
-                blocked = [d for d in card.get("depends_on", [])
-                           if storage.cards.get(d, {}).get("stage") != "Done"]
+                blocked = blocked_prerequisites(
+                    card, stage_of=lambda d: storage.cards.get(d, {}).get("stage"))
                 if blocked:
                     return None, ("Prerequisites still open: "
                                   + ", ".join(f"#{d}" for d in blocked) + ".")
