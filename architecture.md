@@ -98,7 +98,15 @@ Deleting a card also deletes its comments.
 
 # Architecture — Week 5 (system design)
 
-## Component diagram — the whole funnel
+> **Status note:** this section records the AGREED TARGET (see ADRs at the bottom —
+> "accepted" means decided, not yet built) plus the one tier that already exists.
+> As of this writing: ✅ **domain** tier shipped (`app/domain/card_state.py`, pure,
+> 8 tests) · ⬜ **services** tier planned (ADR-001/004) · ⬜ **repository ports +
+> adapters** planned (ADR-002/003) — routes today still carry
+> `@storage.synchronized` and mutate the snapshot store directly.
+> The honest current-state analysis is `docs/architecture-critique.md`.
+
+## Component diagram — the whole funnel (TARGET shape; "today" markers per node)
 
 ```
   browser ────────► FastAPI app ── one worker today; ADR-002 lifts it on Postgres
