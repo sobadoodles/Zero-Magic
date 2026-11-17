@@ -266,38 +266,57 @@ requires documented limitations.
   the APIRouter level (`app/cards.py:15`, `assistant.py:28`, `projects.py:15`,
   `prds.py:16`, `knowledge.py:26`, `boards.py:13`, `team.py:9`), so 401 for
   an anonymous caller is the default, not the opt-in. Owner-only routes go
-  one higher: `POST /auth/invitations` (`app/auth.py:171`) and `POST /people`
-  (`app/team.py:47`) require `Depends(require_admin)` (`auth.py:90–93`).
-  Ownership-gated endpoints raise 403 on the *record*: brief edit
-  (`prds.py:88–89`), project edit (`projects.py:39–40`), knowledge delete
-  (`knowledge.py:211–212`), re-attach (`knowledge.py:357–358`), person edit
-  (`team.py:57–58`). Proposal confirmation is **account-bound**: a foreign
-  `user_id`/conversation reaches 404, not 403 (`app/assistant.py::confirm`).
-  CSRF middleware blocks cross-origin and cross-site mutations
-  (`app/main.py:31,33`).
+  one higher: `POST /auth/invitations` (`app/auth.py:171`), `POST /people`
+  (`app/team.py:47`), and the whole `/auth/tokens` CRUD surface require
+  `Depends(require_admin)` (`auth.py:90–93`). Tokens add a second
+  *credential* path (Bearer alongside session cookie) but not a second
+  *identity* — `require_user` resolves either to the same `users` row, so
+  every `is_admin` check stays intact. Ownership-gated endpoints raise 403
+  on the *record*: brief edit (`prds.py:88–89`), project edit
+  (`projects.py:39–40`), knowledge delete (`knowledge.py:211–212`),
+  re-attach (`knowledge.py:357–358`), person edit (`team.py:57–58`). Proposal
+  confirmation is **account-bound**: a foreign `user_id`/conversation
+  reaches 404, not 403 (`app/assistant.py::confirm`). CSRF middleware blocks
+  cross-origin and cross-site mutations (`app/main.py:31,33`) — skipped only
+  when `Authorization: Bearer` is present, because the credential is
+  explicit and cannot be forged by a cross-site attacker; see A05.
+  `/auth/tokens` mint and revoke additionally require the *cookie* path
+  (`require_cookie_admin`), so a leaked Bearer token cannot mint a
+  replacement.
 - **Status:** **Fixed.** Locked by
   `tests/test_persistent_workspace.py::test_private_reads`,
   `::test_private_write`, `::test_invite_once_and_owner_permissions`,
-  `::test_csrf_guards`; plus per-feature 403 suites in `tests/test_prds.py`,
+  `::test_csrf_guards`; per-feature 403 suites in `tests/test_prds.py`,
   `tests/test_projects.py`, `tests/test_knowledge.py`,
-  `tests/test_assistant_actions.py::test_other_conversation_cannot_confirm`.
-- See `docs/auth-model.md` for the full role × endpoint-family matrix.
+  `tests/test_assistant_actions.py::test_other_conversation_cannot_confirm`;
+  and the escalation guards in `tests/test_api_tokens.py::
+  test_bearer_cannot_mint_another_token`, `::
+  test_bearer_cannot_revoke_itself_or_others`, `::
+  test_member_cannot_mint_or_list_tokens`.
+- See `docs/auth-model.md` for the full role × endpoint-family matrix and
+  `docs/specs/api-tokens.md` for the token contract.
 
 ## A02 — Cryptographic Failures
 - **Risk:** weak hashing, timing leaks, plaintext session/invite tokens.
 - **In the repo:** `app/auth.py::hash_password` uses **scrypt** with
   `n=16384, r=8, p=1` and a 16-byte per-account salt; verify uses
   `hmac.compare_digest` (constant-time). A `DUMMY_HASH` (`auth.py:67`)
-  equalises timing on unknown usernames so enumeration doesn't leak. Sessions
-  and invitations are stored as **SHA-256 digests** of the 32-byte urlsafe
-  token (`auth.py:48–49, 96–101, 178–180`) — a DB dump is not an auth-dump.
-  Cookie is `HttpOnly; SameSite=strict` with `Secure` opt-in via
-  `COOKIE_SECURE`. `reset_password.py` revokes every live session.
+  equalises timing on unknown usernames so enumeration doesn't leak. Sessions,
+  invitations, and API tokens are stored as **SHA-256 digests** of the
+  32-byte `secrets.token_urlsafe(32)` secret (`auth.py:48–49, 96–101,
+  178–180` and the `api_tokens` mint path) — a DB dump is not an auth-dump.
+  Bearer tokens are shown exactly once at mint; the list endpoint returns
+  metadata only, so a leaked `api_tokens` read cannot reveal a working
+  credential. Cookie is `HttpOnly; SameSite=strict` with `Secure` opt-in
+  via `COOKIE_SECURE`. `reset_password.py` revokes every live session *and*
+  flags every outstanding token as revoked.
 - **Status:** **Fixed.**
   `tests/test_persistent_workspace.py::test_setup_once_and_password_hash`,
   `::test_cookie_and_logout_revocation`, `::test_expired_session`,
   `::test_wrong_password_generic`, `::test_regenerating_invite_revokes_old`,
-  `::test_real_process_restart_preserves_data_sessions_and_receipt`.
+  `::test_real_process_restart_preserves_data_sessions_and_receipt`;
+  `tests/test_api_tokens.py::test_token_string_is_never_stored`,
+  `::test_password_reset_revokes_every_token_for_that_account`.
 
 ## A03 — Injection
 - **Risk:** prompt injection turns model output into unauthorised writes;
@@ -349,9 +368,16 @@ requires documented limitations.
   `/api/`. The server binds `127.0.0.1` in the docs and refuses to be
   exposed — the "no-robots-internet" rule (PROJECT-KNOWLEDGE.md §5) is the
   *feature*, not a limitation. Generic 401/403 bodies (`app/auth.py`) never
-  reveal whether a username exists.
+  reveal whether a username exists. The CSRF middleware in `app/main.py:26`
+  skips the Origin / Sec-Fetch checks when `Authorization: Bearer` is
+  present, because the credential is explicit and cannot be attached by a
+  cross-site attacker without the secret already being stolen. Content-type
+  enforcement still applies to every mutation regardless of auth path.
 - **Status:** **Fixed** for what's covered
-  (`tests/test_persistent_workspace.py::test_trusted_host`).
+  (`tests/test_persistent_workspace.py::test_trusted_host`,
+  `::test_csrf_guards`; `tests/test_api_tokens.py::
+  test_bearer_allows_cross_origin_mutation`, `::
+  test_bearer_still_requires_application_json_for_mutations`).
 - **Known gap (recorded):** no `Content-Security-Policy` header. Deliberate,
   because the app's threat model is localhost + `SameSite=strict` cookie +
   DOMPurify output; revisit at deployment (ADR-002/003 Postgres branch).

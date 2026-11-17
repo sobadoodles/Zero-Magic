@@ -26,7 +26,7 @@ PASSWORD="test-passphrase-12345"
 @pytest.fixture(autouse=True)
 def reset():
     with storage.lock,storage.connection() as db:
-        for table in ("sessions","invitations","users","login_attempts","proposals","comments","cards","people","counters"):
+        for table in ("api_tokens","sessions","invitations","users","login_attempts","proposals","comments","cards","people","counters"):
             db.execute(f"DELETE FROM {table}")
     for data in (storage.cards,storage.people,storage.comments,storage.proposals):data.clear()
     storage.card_ids=Counter(1);storage.comment_ids=Counter(1);storage.person_ids=Counter(1)

@@ -45,7 +45,7 @@ the live database is username `sabasadeghibigham` (admin), linked to person prof
 ```powershell
 # from C:\Zero Magic Project, with .venv active
 python -m uvicorn app.main:app --reload     # http://127.0.0.1:8000
-python -m pytest -q                          # full suite (280 tests, ~100s, no network)
+python -m pytest -q                          # full suite (310 tests, ~130s, no network)
 ```
 
 Config comes from `.env` (never committed): `GROQ_API_KEY` + `MODELS`
@@ -69,9 +69,12 @@ Config comes from `.env` (never committed): `GROQ_API_KEY` + `MODELS`
 | 4→5 | Nov 9 | `feat/document-retrieval` branch (2 series of commits) | **Week-4 work committed**; then **retrieval integrated**: structured PDF ingestion (font-size headings, 3+ page header/footer removal), `text_normalized` per chunk, SQLite **knowledge library** (`app/knowledge.py`: save/list/fetch/delete/search/embed), `/documents/structure` review endpoint, **assistant RAG** (`use_knowledge` + `[K1]` citations), Documents dialog + Library toggle in the frontend, `scripts/import_chunks.py`, 24 new tests. Housekeeping fixed: duplicate DELETE route, dead import, duplicated test, junk files. Then **document QA deliverable**: `scripts/answer_questions.py` (grounded CLI answers with per-claim citations, keyword-vs-semantic comparison, failure-collection artifacts, `--no-answering` free mode), `eval/questions.json` (7 gold questions incl. a Persian probe + an expected-miss probe), spec + guide, 19 more tests (242 total) |
 | 6 | Nov 9 | same branch | **Board documents slice** (checklist: "attach, ask, cite"): `app/document_qa.py` shared grounded-answer core; `doc_files.project_id` + `status`; `PUT /knowledge/{source}` re-attach; board-scoped retrieval (`allowed_sources` = own + workspace-ready) incl. chat RAG; `POST /projects/{id}/ask` + `POST /knowledge/ask` with document/page/quote citations; PRD breakdown numbers brief passages (`P1..P40`) and each `CardDraft` cites `source_passages` (invented ids → 502; confirm stores per-card quotes); frontend attach select, board badges, passage lines in proposals + card details. +12 tests (**254 total**). Then **first-class `/boards` API** (`GET /boards`, `GET/POST /boards/{id}/documents`, `POST /boards/{id}/ask`) with a **real ingest status lifecycle** `pending→processing→ready/failed` (phase-committed, persisted failure reasons, retry counter, restart sweep; retrieval gated to `ready`) + shared `perform_ask`; +12 tests (**266**). Then **Day 19 Groundedness Evals executed for real** against the Reference PRD (44 passages, live Groq through `gpt-oss-20b→120b` fallback under 8k TPM): harness `scripts/run_day19_evals.py` (cookie auth, evidence-chunk cause attribution, provider backoff) + `scripts/bootstrap_day19.py` + 30-question gold set; baseline 23/23/5 → **one targeted fix = IDF keyword scoring** → 24/24/5, documented in `eval/day19/eval_report.md`; +1 test net (**267**) |
 | 6 | Nov 9 | same branch | **Acting board assistant** (plan item "preview and confirm"): `POST /assistant/agent` with real function-calling on Groq (probed + live-verified) — `search_cards/read_card/ask_documents` execute immediately as server-scoped calls; `create_card/move_card/add_comment` stage into a new `actions` proposal kind (illegal transitions and open prerequisites rejected at staging; model args validated by the same Pydantic schemas; model-supplied author stripped); confirm applies through the real route functions in one transaction (handler re-checks stages; rollback on any failure); budgets 4 rounds/16 tools/12 writes; 🤖 toggle in UI + actions review panel; spec `docs/specs/agent-tools.md`; +13 tests (**280**) |
+| 6 | Nov 17 | `docs/security-and-rules` → `feat/api-tokens` | **Security / documentation slice**: OWASP Top 10 checklist in `architecture.md` (each row anchored to a file:line + test name; three honest known gaps recorded) · ADR-001 extended with the explicit top-three -ilities (maintainability / testability / security) · new `docs/auth-model.md` (roles × endpoint-family matrix + done-when→test map) · `AGENTS.md` tracked and `CLAUDE.md` added as parallel rules files, both pointing at the checklist and ADRs · base `requirements.txt` closes OWASP A06 and PROJECT-KNOWLEDGE.md §11.7 (every direct dep pinned at the exact `.venv` version). Then **API tokens** closing the one genuine AuthN/AuthZ gap (spec `docs/specs/api-tokens.md`): new `api_tokens` table (hashed, expiring 1–365 days, cap 20, owner-FK), `require_user` accepts `Authorization: Bearer` alongside cookie; `require_cookie_admin` prevents a leaked Bearer from re-minting; CSRF middleware skips Origin/Sec-Fetch checks when Bearer is present; `reset_password.py` also revokes tokens; OWASP A01/A02/A05 rows extended + 22 new tests (**310 total**, **55 API ops**). |
 
-Current branch: `feat/document-retrieval` (off `feat/document-import`; branches also exist for
-`master`, `feat/create-card`, `feat/prd-breakdown`; remote mirrors the older ones).
+Current branch: `feat/api-tokens` (off `docs/security-and-rules` off
+`feat/document-retrieval`; older branches also exist for `master`,
+`feat/create-card`, `feat/prd-breakdown`, `feat/document-import`; remote
+mirrors the older ones).
 
 ---
 
@@ -137,11 +140,13 @@ Transactional **SQLite snapshot** pattern:
 | `knowledge.py` | **Document knowledge library**: stored reviewed passages in SQLite (`doc_files`/`doc_chunks` snapshots + `doc_vectors` table), save/replace with size caps + board (`project_id`/`status`) attachment, re-attach, keyword+optional-semantic retrieval with board scoping, lazy fastembed (single-flight), grounded `/ask`; all routes login-gated |
 | `document_qa.py` | **Strict grounded answering core** (shared by CLI + `/ask`): `[K#]` passage labelling, untrusted-data prompt, `GroundedAnswer` contract (cite-when-found / plain-statement-not-found), application-answered empty retrieval (no model call), citation→document/page/quote mapping |
 
-### 3.4 Complete API surface (52 operations, all `/api/v1/*` require login except auth)
+### 3.4 Complete API surface (55 operations, all `/api/v1/*` require login except auth)
 
 **Accounts** — `GET /auth/status` · `POST /auth/setup` · `POST /auth/login` ·
 `POST /auth/logout` · `GET /auth/me` · `POST /auth/invitations` (admin) ·
-`POST /auth/invitation` (validate token) · `POST /auth/accept-invite`
+`POST /auth/invitation` (validate token) · `POST /auth/accept-invite` ·
+`GET /auth/tokens` (admin) · `POST /auth/tokens` (cookie-admin) ·
+`DELETE /auth/tokens/{id}` (cookie-admin)
 
 **Cards** — `POST/GET /cards` · `GET/PATCH/DELETE /cards/{id}` ·
 `PATCH /cards/{id}/stage` · `POST/GET /cards/{id}/comments` ·
@@ -222,7 +227,18 @@ Also: `GET /health`, `GET /` (app), `/docs` Swagger UI.
   rows pruned at login; login_attempts throttles 20 fails/15min per IP **and** per username
   (persisted across restarts; successful login clears the user's counters).
 - Invitations: hashed tokens, `used` flag, person-lock, regenerate revokes prior tokens.
-- `reset_password.py` (server stopped) rehashes and **revokes all sessions**.
+- **API tokens (Week 6, `docs/specs/api-tokens.md`):** 32-byte
+  `secrets.token_urlsafe(32)` shown once at mint, SHA-256-hashed in
+  `api_tokens` (FK → `users`), label + expiry 1–365 days (default 90), cap
+  20 active per owner. Presented as `Authorization: Bearer <token>`;
+  `require_user` resolves cookie first, then Bearer, both to the same
+  `users` row. `last_used_at` bumps only on successful auth. **Cookie-only
+  mint and revoke** via `require_cookie_admin` (a leaked Bearer cannot
+  re-mint, so revocation is meaningful). CSRF middleware skips Origin/Sec-
+  Fetch checks when Bearer is present (credential is explicit); the
+  content-type check stays for every mutation.
+- `reset_password.py` (server stopped) rehashes and **revokes all sessions
+  *and* every outstanding API token** for that account.
 
 ### 4.5 AI assistant (discuss / plan / assign)
 
@@ -563,14 +579,59 @@ half-applied board.
   to end on a throwaway DB: staged move stayed unapplied ("waiting for your confirmation"),
   confirm applied it Spec→Ready, follow-up read-only turn answered correctly with no proposal.
 
+### 4.17 API tokens — Bearer auth for external callers (Week 6; spec `docs/specs/api-tokens.md`)
+
+Closes the one genuine AuthN/AuthZ gap the Week-6 plan named: *"Real API tokens
+— Bearer for agents — is the one genuine gap; the app uses session cookies."*
+
+- New `api_tokens` table: `id`, `token_hash` (SHA-256 of a 32-byte
+  `secrets.token_urlsafe(32)`, UNIQUE), `owner_id` (FK → users), `label`
+  1–80 chars, `created_at`, `expires_at` (1–365 days, default 90),
+  `revoked_at`, `last_used_at`. Cleared by every test fixture's reset tuple.
+- `require_user` in `app/auth.py:78` extended to try cookie first, then Bearer
+  (`Authorization: Bearer <token>`), returning the same `user_read` shape with
+  an extra `auth_via` field for internal routing decisions. Members and
+  owners alike can be Bearer-authenticated; role checks still run against
+  `is_admin` and per-record ownership, unchanged.
+- Owner-only token CRUD: `GET /api/v1/auth/tokens` (any admin auth path),
+  `POST /api/v1/auth/tokens` and `DELETE /api/v1/auth/tokens/{id}` behind a
+  new `require_cookie_admin` — **a leaked Bearer cannot mint or revoke a
+  replacement**, so revocation actually revokes.
+- `scripts/reset_password.py` now flags every outstanding token as revoked
+  alongside deleting sessions.
+- CSRF middleware in `app/main.py` skips the Origin / Sec-Fetch checks when
+  Bearer is present (the credential is explicit; a cross-site attacker
+  cannot attach a stolen secret without already having it). Content-type
+  enforcement is unchanged for Bearer mutations.
+- 20 active tokens per owner, mint rejects 409 beyond that. Plaintext token
+  is shown exactly once at mint and never hits the DB.
+- Frontend Account dialog intentionally unchanged — the mint path is used via
+  Swagger UI or curl until a follow-on UI slice. Recorded as out-of-scope in
+  the spec.
+- API surface now **55 operations**; tests **310** (22 new in
+  `tests/test_api_tokens.py`: positive Bearer read/write/assistant,
+  content-type preserved on Bearer, cross-origin allowed on Bearer, bad /
+  short / expired / revoked tokens all generic 401, escalation guards, cap at
+  20, DB byte-scan for plaintext absence, `last_used_at` update semantics,
+  reset-password cascade). OWASP rows A01, A02, A05 updated to include the
+  Bearer path; A07/A08 unchanged because the same 401 discipline and the
+  same transactional integrity cover tokens.
+
 ---
 
 ## 5. Security model (as implemented)
 
 - Cookie `zero_magic_session`: HttpOnly, SameSite=strict, path=/, 30 days, Secure opt-in.
+- **Bearer API tokens** (`Authorization: Bearer <sha256-at-rest secret>`):
+  32-byte `secrets.token_urlsafe(32)` minted by the owner through the cookie
+  path, expiring 1–365 days, cap 20 active, revocable, `last_used_at`
+  bumped only on success; cannot themselves mint or revoke (`require_cookie_admin`).
 - All `/api/v1/*` business routers require login; mutations additionally need same-origin
   (`Origin` match, `Sec-Fetch-Site != cross-site`) + `application/json` content-type (415;
   DELETE exempt from the content-type check but still origin-guarded — a quirk worth knowing).
+  Bearer-authenticated mutations are exempt from the Origin / Sec-Fetch checks
+  (the credential is explicit, not ambient); the content-type check remains
+  for every path.
 - `TrustedHostMiddleware` (`localhost,127.0.0.1` + test server); X-Content-Type-Options,
   Referrer-Policy, X-Frame-Options DENY, API no-store.
 - Prompt-injection containment: workspace/PRD/chat text is framed as data; only
@@ -586,7 +647,7 @@ half-applied board.
 
 ---
 
-## 6. Tests — full inventory (280 passing, verified 2026-11-09 on `feat/document-retrieval`, ~100s, zero network)
+## 6. Tests — full inventory (310 passing, verified 2026-11-17 on `feat/api-tokens`, ~130s, zero network)
 
 `tests/conftest.py` sets `ZERO_MAGIC_DB` to a temp dir **before** any app import (and refuses
 to run if the app was imported first), so the real workspace DB is never touched. All AI
@@ -640,9 +701,10 @@ no secrets committed, documented limitations.
   **`BOARD-DOCUMENTS.md`** (attach/ask/cite tour),
   `architecture.md` (Week 1–2, now partly historical),
   `PROJECT-KNOWLEDGE.md` (this file), `testing.py` (git test).
-- **`docs/specs/`**: 11 specs — `create-card`, `comments`, `assistant-actions`,
+- **`docs/specs/`**: 12 specs — `create-card`, `comments`, `assistant-actions`,
   `prd-breakdown`, `document-import`, `projects`, **`document-retrieval`**,
-  **`document-qa`**, **`board-documents`**, **`agent-tools`**, `review-checklist`.
+  **`document-qa`**, **`board-documents`**, **`agent-tools`**, **`api-tokens`**,
+  `review-checklist`.
 - **`app/`**: 18 modules (§3.3, incl. `knowledge.py` + `document_qa.py`). **`tests/`**: 15 files + conftest (§6).
 - **`frontend/`**: `index.html`, `app.js`, `styles.css`, `vendor/` (marked, purify + licenses).
 - **`scripts/`**: `export_old_workspace.py` (legacy in-memory era), `import_workspace.py`

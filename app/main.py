@@ -26,11 +26,19 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=[
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     if request.url.path.startswith("/api/") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-        origin = request.headers.get("origin")
-        if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
-            return JSONResponse({"detail":"Cross-origin changes are not allowed."}, status_code=403)
-        if request.headers.get("sec-fetch-site") == "cross-site":
-            return JSONResponse({"detail":"Cross-site changes are not allowed."}, status_code=403)
+        # CSRF guards (Origin / Sec-Fetch-Site) protect *ambient* credentials —
+        # i.e. the session cookie, which a browser attaches automatically. A
+        # `Authorization: Bearer` header is explicit: no cross-site attacker
+        # can produce it from a browser without the secret already being
+        # stolen, and CORS without an Allow-Credentials preflight blocks it.
+        # So Bearer mutations skip the origin checks but still require JSON.
+        bearer_present = request.headers.get("authorization", "").startswith("Bearer ")
+        if not bearer_present:
+            origin = request.headers.get("origin")
+            if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
+                return JSONResponse({"detail":"Cross-origin changes are not allowed."}, status_code=403)
+            if request.headers.get("sec-fetch-site") == "cross-site":
+                return JSONResponse({"detail":"Cross-site changes are not allowed."}, status_code=403)
         if request.method != "DELETE" and request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
             return JSONResponse({"detail":"Send changes as application/json."}, status_code=415)
     response = await call_next(request)

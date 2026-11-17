@@ -25,7 +25,7 @@ LEGAL_PAIRS = {
 @pytest.fixture(autouse=True)
 def reset():
     with storage.lock, storage.connection() as db:
-        for table in ('sessions', 'invitations', 'users', 'login_attempts', 'proposals',
+        for table in ('api_tokens', 'sessions', 'invitations', 'users', 'login_attempts', 'proposals',
                       'comments', 'cards', 'people', 'counters'):
             db.execute(f'DELETE FROM {table}')
     for records in (storage.cards, storage.people, storage.comments, storage.proposals):

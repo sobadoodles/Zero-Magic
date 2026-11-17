@@ -76,20 +76,71 @@ def user_read(row):
 
 
 def require_user(request: Request):
+    """Session cookie first, then `Authorization: Bearer <token>`. Both paths
+    resolve to the same account row, so routers that trust `require_user` do
+    not need to care which one they got. Some owner-only routes
+    (`/auth/tokens/*`) additionally require the cookie path so a leaked API
+    token cannot mint another one; see `require_cookie_user`."""
     token = request.cookies.get(COOKIE, "")
+    if token and len(token) <= 200:
+        with storage.lock, storage.connection() as db:
+            row = db.execute("SELECT users.* FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash=? AND expires>?",
+                             (digest(token), time.time())).fetchone()
+            if row:
+                user = user_read(row)
+                user["auth_via"] = "session"
+                return user
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        api_token = auth[7:].strip()
+        if 20 <= len(api_token) <= 200:
+            with storage.lock, storage.connection() as db:
+                row = db.execute(
+                    "SELECT users.* FROM api_tokens JOIN users ON users.id=api_tokens.owner_id "
+                    "WHERE api_tokens.token_hash=? AND api_tokens.revoked_at IS NULL AND api_tokens.expires_at>?",
+                    (digest(api_token), time.time())).fetchone()
+                if row:
+                    db.execute("UPDATE api_tokens SET last_used_at=? WHERE token_hash=?",
+                               (time.time(), digest(api_token)))
+                user = user_read(row) if row else None
+            if user:
+                user["auth_via"] = "token"
+                return user
+    if token:
+        raise HTTPException(401, "Your session expired. Sign in again.")
+    raise HTTPException(401, "Sign in to continue.")
+
+
+def require_cookie_user(request: Request):
+    """Owner-only cookie path. Used for `/auth/tokens` CRUD so that an
+    accidentally leaked API token cannot be used to mint a replacement.
+    A valid Bearer caller is *authenticated* but not *authorized* on this
+    surface, so we return 403, not 401 (per A01 in `architecture.md`)."""
+    token = request.cookies.get(COOKIE, "")
+    auth = request.headers.get("authorization", "")
     if not token or len(token) > 200:
-        raise HTTPException(401, "Sign in to continue.")
+        if auth.startswith("Bearer "):
+            raise HTTPException(403, "Sign in with a browser session to manage API tokens.")
+        raise HTTPException(401, "Sign in with a browser session to manage API tokens.")
     with storage.lock, storage.connection() as db:
         row = db.execute("SELECT users.* FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash=? AND expires>?",
                          (digest(token), time.time())).fetchone()
         if not row:
             raise HTTPException(401, "Your session expired. Sign in again.")
-        return user_read(row)
+    user = user_read(row)
+    user["auth_via"] = "session"
+    return user
 
 
 def require_admin(user=Depends(require_user)):
     if not user["is_admin"]:
         raise HTTPException(403, "Only the workspace owner can manage logins and team members.")
+    return user
+
+
+def require_cookie_admin(user=Depends(require_cookie_user)):
+    if not user["is_admin"]:
+        raise HTTPException(403, "Only the workspace owner can manage API tokens.")
     return user
 
 
@@ -184,6 +235,65 @@ def invite(payload: InviteInput, user=Depends(require_admin)):
 class InvitationToken(BaseModel):
     model_config = ConfigDict(extra="forbid")
     token: str = Field(min_length=20, max_length=128)
+
+
+TOKEN_MAX_ACTIVE = 20
+
+
+class TokenCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = Field(min_length=1, max_length=80)
+    expires_in_days: int = Field(default=90, ge=1, le=365)
+
+
+def _token_row_view(row):
+    return {"id": row["id"], "label": row["label"], "created_at": row["created_at"],
+            "expires_at": row["expires_at"], "revoked_at": row["revoked_at"],
+            "last_used_at": row["last_used_at"]}
+
+
+@router.get("/tokens")
+def list_tokens(user=Depends(require_admin)):
+    with storage.lock, storage.connection() as db:
+        rows = db.execute(
+            "SELECT id,label,created_at,expires_at,revoked_at,last_used_at FROM api_tokens "
+            "WHERE owner_id=? ORDER BY created_at DESC", (user["id"],)).fetchall()
+    return {"tokens": [_token_row_view(r) for r in rows]}
+
+
+@router.post("/tokens", status_code=201)
+def mint_token(payload: TokenCreate, user=Depends(require_cookie_admin)):
+    label = payload.label.strip()
+    if not label:
+        raise HTTPException(422, "Token label cannot be blank.")
+    raw = secrets.token_urlsafe(32)
+    now = time.time()
+    expires = now + payload.expires_in_days * 86400
+    with storage.transaction() as db:
+        active = db.execute(
+            "SELECT count(*) FROM api_tokens WHERE owner_id=? AND revoked_at IS NULL AND expires_at>?",
+            (user["id"], now)).fetchone()[0]
+        if active >= TOKEN_MAX_ACTIVE:
+            raise HTTPException(409, f"Only {TOKEN_MAX_ACTIVE} active API tokens per account; revoke one first.")
+        row = db.execute(
+            "INSERT INTO api_tokens(token_hash,owner_id,label,created_at,expires_at) VALUES (?,?,?,?,?) "
+            "RETURNING id",
+            (digest(raw), user["id"], label, now, expires)).fetchone()
+    return {"token": raw, "id": row["id"], "label": label,
+            "created_at": now, "expires_at": expires,
+            "note": "This is the only time the token is shown. Store it privately."}
+
+
+@router.delete("/tokens/{token_id}", status_code=204)
+def revoke_token(token_id: int, user=Depends(require_cookie_admin)):
+    with storage.lock, storage.connection() as db:
+        row = db.execute("SELECT id, revoked_at FROM api_tokens WHERE id=? AND owner_id=?",
+                         (token_id, user["id"])).fetchone()
+        if not row:
+            raise HTTPException(404, "Token not found.")
+        if row["revoked_at"] is not None:
+            raise HTTPException(409, "Token already revoked.")
+        db.execute("UPDATE api_tokens SET revoked_at=? WHERE id=?", (time.time(), token_id))
 
 
 @router.post("/invitation")

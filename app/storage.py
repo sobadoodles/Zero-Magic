@@ -63,6 +63,16 @@ with connection() as db:
     CREATE TABLE IF NOT EXISTS invitations (
       token_hash TEXT PRIMARY KEY, person_id INTEGER NOT NULL REFERENCES people(id),
       expires REAL NOT NULL, used INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_hash TEXT NOT NULL UNIQUE,
+      owner_id INTEGER NOT NULL REFERENCES users(id),
+      label TEXT NOT NULL,
+      created_at REAL NOT NULL,
+      expires_at REAL NOT NULL,
+      revoked_at REAL,
+      last_used_at REAL);
+    CREATE INDEX IF NOT EXISTS api_tokens_owner ON api_tokens(owner_id, revoked_at, expires_at);
     CREATE TABLE IF NOT EXISTS login_attempts (scope TEXT NOT NULL, attempted_at REAL NOT NULL);
     CREATE INDEX IF NOT EXISTS attempts_scope ON login_attempts(scope, attempted_at);
     ''')

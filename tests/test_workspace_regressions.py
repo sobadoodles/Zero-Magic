@@ -14,7 +14,7 @@ client=TestClient(app)
 def signed_in_workspace():
     with storage.lock, storage.connection() as db:
         for table in (
-            "sessions", "invitations", "users", "login_attempts",
+            "api_tokens", "sessions", "invitations", "users", "login_attempts",
             "prd_generation_requests", "prd_revisions", "prds",
             "proposals", "comments", "cards", "people", "projects",
             "counters",

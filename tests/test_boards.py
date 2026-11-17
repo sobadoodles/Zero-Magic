@@ -37,7 +37,7 @@ def pdf(text='Reminder rule: send one day before the due date at nine.'):
 @pytest.fixture(autouse=True)
 def reset():
     with storage.lock, storage.connection() as db:
-        for table in ('sessions', 'invitations', 'users', 'login_attempts',
+        for table in ('api_tokens', 'sessions', 'invitations', 'users', 'login_attempts',
                       'prd_generation_requests', 'prd_revisions', 'prds', 'proposals',
                       'comments', 'cards', 'people', 'counters', 'projects',
                       'doc_files', 'doc_chunks', 'doc_vectors'):

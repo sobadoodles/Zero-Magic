@@ -1,6 +1,7 @@
 """Local recovery only. Stop the server; enter passwords privately, not as arguments."""
 import getpass
 import sys
+import time
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 from app import storage
@@ -15,4 +16,5 @@ if password!=confirm or not 12<=len(password)<=128:raise SystemExit("Passwords m
 with storage.connection() as db:
     db.execute("UPDATE users SET password_hash=? WHERE id=?",(hash_password(password),row[0]))
     db.execute("DELETE FROM sessions WHERE user_id=?",(row[0],))
-print("Password reset. All previous sessions for this account are revoked.")
+    db.execute("UPDATE api_tokens SET revoked_at=? WHERE owner_id=? AND revoked_at IS NULL",(time.time(),row[0]))
+print("Password reset. All previous sessions and API tokens for this account are revoked.")

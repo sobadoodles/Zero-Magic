@@ -8,7 +8,7 @@ multiple workers).
 ## Read first
 
 - `PROJECT-KNOWLEDGE.md` — exhaustive, current (2026-11-09) reference: full API surface
-  (52 ops), module map, storage design, limits, quirks, and the project's design laws.
+  (55 ops), module map, storage design, limits, quirks, and the project's design laws.
   Consult it before adding or changing features.
 - `architecture.md` — the six ADRs + the **Security — OWASP Top 10 applied** checklist.
   Any new feature must fit the three-tier dependency direction of ADR-001; any new
@@ -27,7 +27,7 @@ multiple workers).
 # Use `.venv` — `.venv-1`/`.venv-2` are stray duplicates (.venv is canonical, has fastembed)
 .\.venv\Scripts\Activate.ps1
 python -m uvicorn app.main:app --reload      # dev server -> http://127.0.0.1:8000
-python -m pytest -q                          # full suite: ~280 tests, ~100 s, zero network
+python -m pytest -q                          # full suite: ~310 tests, ~130 s, zero network
 python -m pytest tests/test_cards.py -q      # single file (same for -k selectors)
 ```
 
@@ -74,6 +74,13 @@ python -m pytest tests/test_cards.py -q      # single file (same for -k selector
   must follow the existing proposal/receipt pattern (`docs/specs/agent-tools.md` is the
   model). Discussion responses and model output can never write directly.
 - Sessions/cookies: `localhost` and `127.0.0.1` are different cookie hosts — be consistent.
+- Auth surface has **two credential paths and three identity roles**. `require_user`
+  in `app/auth.py` accepts the session cookie first, then `Authorization: Bearer`; both
+  resolve to the same account row. Members and owners can both use either path; the
+  `/auth/tokens` mint + revoke endpoints additionally require the cookie path
+  (`require_cookie_admin`) so a leaked Bearer cannot mint a replacement. Any new
+  cookie-only admin surface must follow this pattern. See `docs/specs/api-tokens.md`
+  and `docs/auth-model.md`.
 
 ## Git
 

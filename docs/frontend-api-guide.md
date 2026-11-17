@@ -17,7 +17,7 @@ by the 288-test offline suite; the shapes are from the live OpenAPI (`/openapi.j
 | **Proposal** | `{id:uuid, kind: cards\|assignments\|delete_project\|actions, status: pending\|confirmed\|cancelled\|superseded\|expired, data, expires_at}` | THE core UI object — see §3 |
 | **Account/session** | cookie `zero_magic_session`, 30 days, HttpOnly SameSite=strict | setup-once owner; one-use 48h invitations; roles: owner (`is_admin`) vs member |
 
-## 2. Endpoint map (52 operations, auth via cookie; every non-`/auth` route 401s anonymous)
+## 2. Endpoint map (55 operations; auth via session cookie or `Authorization: Bearer`; every non-`/auth` route 401s anonymous)
 
 ```
 Accounts    GET /auth/status · POST /auth/setup · POST /auth/login · POST /auth/logout
