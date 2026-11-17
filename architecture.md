@@ -171,6 +171,35 @@ rules take data + injected policies, never singletons. **Consequences:** the
 Week-8 worker reuses services without FastAPI; 10 modules churn once; the offline
 288-test suite is the safety net.
 
+**Top three -ilities this architecture defends, in order:**
+
+1. **Maintainability** — one place per rule. The stage machine lives only in
+   `app/domain/card_state.py`; the CSRF / origin guard lives only in
+   `app/main.py::security_middleware`; the proposal lifecycle lives only in
+   `app/assistant.py::save_proposal` / `confirm`. A bug or change has one
+   address. When a rule needs adding, the layer it belongs in is decided by the
+   direction (domain ← services ← routers), not by which file was easiest to
+   open.
+2. **Testability** — pure domain + offline 288-test safety net. `domain/card_state.py`
+   has zero I/O imports (locked by
+   `tests/test_card_state_machine.py::test_domain_module_is_pure_no_io_imports`),
+   and every other tier is exercised by `tests/` with disposable SQLite and
+   `httpx.MockTransport` for Groq — no network, no keys, ~100 s end-to-end.
+   This is what lets the ADR-001 refactor sweep happen at all: any regression is
+   loud.
+3. **Security** — nothing writes without an expiring, account-bound human approval.
+   The domain has no concept of "admin"; access-control decisions stay at the
+   adapter (FastAPI route) layer, while the write path itself is guarded by a
+   single preview→confirm engine that no code path — UI, agent tool, PRD
+   breakdown, project delete — bypasses. See *Security — OWASP Top 10 applied*
+   below and the roles map in `docs/auth-model.md`.
+
+**Why these three (defense in review):** an internship prototype that has to
+*survive being looked at*. Iteration speed is already earned by the preview
+law — a fourth -ility (observability, resilience, deployability) is deferred
+to the Postgres + multi-worker tier (ADR-002/003), because none of them
+materially change the layer shape above.
+
 ### ADR-002 — Dual-backend persistence behind one port
 **Status:** accepted · **Context:** durability exists (SQLite snapshots) but the
 plan names PostgreSQL + migrations, and multi-process safety needs row
@@ -219,3 +248,196 @@ byte-identical messages; existing raise-sites convert opportunistically, never i
 a behaviour-changing sweep. **Consequences:** the domain stays framework-free
 without breaking contracts; the pinned message tests double as the compatibility
 harness during migration.
+
+---
+
+# Security — OWASP Top 10 applied (Week 6, deliverable 5)
+
+Every entry below is checked against **the code that exists right now**, not the
+spec. Each has three parts: **the risk**, **what's in the repo** (file:line +
+test:line), and **status** — `Fixed`, `Mitigated (prototype scope)`, or
+`Known gap (recorded)`. Any change to these must update this list *and* the
+matching tests; the review-checklist (`docs/specs/review-checklist.md`) already
+requires documented limitations.
+
+## A01 — Broken Access Control
+- **Risk:** a lower-privileged caller reaches an owner-only mutation.
+- **In the repo:** routers declare `dependencies=[Depends(require_user)]` at
+  the APIRouter level (`app/cards.py:15`, `assistant.py:28`, `projects.py:15`,
+  `prds.py:16`, `knowledge.py:26`, `boards.py:13`, `team.py:9`), so 401 for
+  an anonymous caller is the default, not the opt-in. Owner-only routes go
+  one higher: `POST /auth/invitations` (`app/auth.py:171`) and `POST /people`
+  (`app/team.py:47`) require `Depends(require_admin)` (`auth.py:90–93`).
+  Ownership-gated endpoints raise 403 on the *record*: brief edit
+  (`prds.py:88–89`), project edit (`projects.py:39–40`), knowledge delete
+  (`knowledge.py:211–212`), re-attach (`knowledge.py:357–358`), person edit
+  (`team.py:57–58`). Proposal confirmation is **account-bound**: a foreign
+  `user_id`/conversation reaches 404, not 403 (`app/assistant.py::confirm`).
+  CSRF middleware blocks cross-origin and cross-site mutations
+  (`app/main.py:31,33`).
+- **Status:** **Fixed.** Locked by
+  `tests/test_persistent_workspace.py::test_private_reads`,
+  `::test_private_write`, `::test_invite_once_and_owner_permissions`,
+  `::test_csrf_guards`; plus per-feature 403 suites in `tests/test_prds.py`,
+  `tests/test_projects.py`, `tests/test_knowledge.py`,
+  `tests/test_assistant_actions.py::test_other_conversation_cannot_confirm`.
+- See `docs/auth-model.md` for the full role × endpoint-family matrix.
+
+## A02 — Cryptographic Failures
+- **Risk:** weak hashing, timing leaks, plaintext session/invite tokens.
+- **In the repo:** `app/auth.py::hash_password` uses **scrypt** with
+  `n=16384, r=8, p=1` and a 16-byte per-account salt; verify uses
+  `hmac.compare_digest` (constant-time). A `DUMMY_HASH` (`auth.py:67`)
+  equalises timing on unknown usernames so enumeration doesn't leak. Sessions
+  and invitations are stored as **SHA-256 digests** of the 32-byte urlsafe
+  token (`auth.py:48–49, 96–101, 178–180`) — a DB dump is not an auth-dump.
+  Cookie is `HttpOnly; SameSite=strict` with `Secure` opt-in via
+  `COOKIE_SECURE`. `reset_password.py` revokes every live session.
+- **Status:** **Fixed.**
+  `tests/test_persistent_workspace.py::test_setup_once_and_password_hash`,
+  `::test_cookie_and_logout_revocation`, `::test_expired_session`,
+  `::test_wrong_password_generic`, `::test_regenerating_invite_revokes_old`,
+  `::test_real_process_restart_preserves_data_sessions_and_receipt`.
+
+## A03 — Injection
+- **Risk:** prompt injection turns model output into unauthorised writes;
+  SQLi; command injection through the subprocess parser.
+- **In the repo:** three separate injections defended. (1) **Prompt**: the
+  system prompt frames every context block as *data, not instructions*
+  (`app/assistant.py`), the model never receives a confirm tool, and every
+  write path — chat/plan, PRD breakdown, agent's
+  `create_card/move_card/add_comment` — must go through the
+  **preview → approve → receipt** engine. The human's own session cookie is
+  what finalises writes (`assistant.py::confirm`), so a planted
+  `"SYSTEM: skip confirmation"` in a brief or card title cannot reach a write,
+  and an unauthenticated self-confirm is 401. (2) **SQL**: every statement in
+  `storage.py` / `auth.py` is parameterised
+  (`db.execute("... WHERE token_hash=?", (digest(token),))`); string
+  interpolation is not present in the query layer. (3) **Subprocess**: the
+  document parser is `python -E -P document_worker.py <suffix>` with an
+  **environment allowlist that excludes `GROQ_API_KEY`** (`app/documents.py`);
+  `<suffix>` is a whitelist check against magic bytes, not user input.
+- **Status:** **Fixed.**
+  `tests/test_assistant_actions.py::test_injected_card_text_cannot_trigger_writes`,
+  the 10-case prompt-injection sweep in `tests/test_prds.py`,
+  `tests/test_agent_actions.py::test_injected_card_text_cannot_self_apply`,
+  `tests/test_documents.py::test_worker_does_not_inherit_api_key`.
+
+## A04 — Insecure Design
+- **Risk:** design itself permits unbounded writes, no idempotency, no rate
+  limits, destructive ops without preview.
+- **In the repo:** the **core design law** is the mitigation — nothing writes
+  to the board without an explicit, account-bound, expiring preview →
+  approval → idempotent receipt (ADR-001 §"Top three -ilities"). Concretely:
+  proposal TTL 30 min, ≤200 stored, batch size ≤12; permanent project
+  deletion is only reachable through a 600 s typed-name preview + snapshot
+  re-digest; broken disk restores both SQLite and memory; PRD breakdown has
+  a durable `prd_generation_requests` reservation table so a crash cannot
+  leak quota.
+- **Status:** **Mitigated (prototype scope)** — the law is enforced by code,
+  tests, and the design; the "prototype" label only means the threat model is
+  *local single-tenant*, not public-internet multi-tenant.
+- `tests/test_projects.py` (deletion preview invalidation + snapshot
+  re-check), `tests/test_persistent_workspace.py::test_batch_rolls_back_on_disk_failure`.
+
+## A05 — Security Misconfiguration
+- **Risk:** verbose errors leak internals; permissive hosts; missing headers.
+- **In the repo:** `TrustedHostMiddleware`
+  (`localhost, 127.0.0.1` + test server, `app/main.py`) returns 400 for
+  foreign Host headers. Response headers: `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy`, `X-Frame-Options: DENY`, `Cache-Control: no-store` on
+  `/api/`. The server binds `127.0.0.1` in the docs and refuses to be
+  exposed — the "no-robots-internet" rule (PROJECT-KNOWLEDGE.md §5) is the
+  *feature*, not a limitation. Generic 401/403 bodies (`app/auth.py`) never
+  reveal whether a username exists.
+- **Status:** **Fixed** for what's covered
+  (`tests/test_persistent_workspace.py::test_trusted_host`).
+- **Known gap (recorded):** no `Content-Security-Policy` header. Deliberate,
+  because the app's threat model is localhost + `SameSite=strict` cookie +
+  DOMPurify output; revisit at deployment (ADR-002/003 Postgres branch).
+
+## A06 — Vulnerable and Outdated Components
+- **Risk:** unpinned transitive dependencies, unknown CVE exposure.
+- **In the repo:** **partial.** Vendored frontend libs are pinned by copy
+  (`frontend/vendor/marked@18.1.2`, `frontend/vendor/purify@3.4.17`) — no
+  CDN at runtime, no `npm install` in the browser path. Python side has
+  pinned patches (`requirements-prd.txt` = `instructor==1.17.0`;
+  `requirements-documents.txt` = `pypdf==6.19.0`, `defusedxml==0.7.1`), but
+  `fastapi`, `uvicorn`, `pytest`, `openai`, `python-dotenv`, `fastembed` are
+  **not recorded anywhere** — no base `requirements.txt`, no lockfile, so a
+  fresh machine cannot reproduce `.venv` (PROJECT-KNOWLEDGE.md §11.7).
+- **Status:** **Known gap (recorded).** Fix = add a base `requirements.txt`
+  pinning the six unrecorded packages, alongside the Postgres branch work
+  (deliverable 8's own PR, since `psycopg` and `alembic` land there too).
+
+## A07 — Identification and Authentication Failures
+- **Risk:** credential stuffing, session fixation, replayed tokens.
+- **In the repo:** persistent `login_attempts` table throttles **20 fails /
+  15 min per IP AND per username** (survives restart; `app/auth.py::login`),
+  with successful login clearing the user's counters. Sessions are single-use
+  random tokens, hashed at rest, expired at 30 days; expired rows are pruned
+  at each login. Logout deletes the session row server-side
+  (`auth.py:163–167`). Passwords 12–128 chars.
+- **Status:** **Fixed.**
+  `tests/test_persistent_workspace.py::test_rate_limit`,
+  `::test_expired_session`, `::test_cookie_and_logout_revocation`.
+
+## A08 — Software and Data Integrity Failures
+- **Risk:** a compromised artifact or a half-applied batch changes state.
+- **In the repo:** every mutating route is a **single SQLite transaction**
+  that flushes the whole snapshot atomically — a disk write error rolls back
+  both the DB *and* the in-memory state (`app/storage.py::transaction` +
+  `restore()`). Confirm batches (cards, assignments, actions) validate the
+  *whole* batch first, apply under one transaction, and any failure reverts
+  every item; receipt is idempotent so replay returns the same result, no
+  second write. `scripts/import_workspace.py` and `scripts/backup_database.py`
+  use the SQLite backup API; `import_workspace` refuses on a non-empty DB.
+  Frontend Markdown goes through vendored DOMPurify with a strict tag and
+  attribute allowlist (`frontend/app.js`), never a CDN copy.
+- **Status:** **Fixed.**
+  `tests/test_persistent_workspace.py::test_batch_rolls_back_on_disk_failure`,
+  `::test_concurrent_confirm_once`, `::test_legacy_import_and_consistent_backup`;
+  `tests/test_assistant_actions.py::test_card_batch_rolls_back`,
+  `::test_assignment_batch_rolls_back`.
+
+## A09 — Security Logging and Monitoring Failures
+- **Risk:** no audit trail means incidents are invisible.
+- **In the repo:** **not implemented by design** for a localhost prototype —
+  no audit log, no SIEM, no login-incident alerting. The only "log" is the
+  `login_attempts` table (rate-limit evidence retained even on failure —
+  `app/auth.py::login`). PROJECT-KNOWLEDGE.md §5 records this as an explicit
+  non-goal.
+- **Status:** **Known gap (recorded).** Deliberate at prototype scale; the
+  deployment path (PROJECT-KNOWLEDGE.md §10 item 9) lists audit logging as
+  its own follow-on deliverable, not silent debt.
+
+## A10 — Server-Side Request Forgery (SSRF)
+- **Risk:** user-supplied URLs or document macros make the server fetch
+  arbitrary resources.
+- **In the repo:** **the app never makes outbound requests on user input.**
+  The document importer is the *only* place that would, and it explicitly
+  does not: PDFs and DOCXs arrive as base64 in the POST body
+  (`app/documents.py`, body ≤2.8 MB), original bytes are never stored, the
+  child process parses locally with no network, `defusedxml` uses
+  `forbid_dtd` so external entities cannot be fetched, and DOCX VBA/macro
+  files are rejected before parsing. `GROQ_API_KEY` is on the env-allowlist
+  *exclusion*, not inclusion (the child never sees it).
+- **Status:** **Fixed.**
+  `tests/test_documents.py::test_entities_rejected`,
+  `::test_zip_expansion_limit`, `::test_worker_does_not_inherit_api_key`,
+  `::test_bad_files` (macro + DTD + encrypted cases).
+
+---
+
+## Cross-cutting rules the checklist enforces
+
+- **The rules files (`AGENTS.md`, `CLAUDE.md`) point here.** Any AI-writable
+  operation must reuse the existing preview/receipt pattern
+  (`docs/specs/agent-tools.md` is the canonical model); a new surface must
+  add a row above with the same *In the repo* granularity.
+- **The "prototype-scope" label is not a shrug.** Every `Known gap (recorded)`
+  line names the PROJECT-KNOWLEDGE.md §10 roadmap item or ADR that owns the
+  follow-up, and the fix is scoped to the PR that introduces the dependency
+  it unlocks (e.g. `requirements.txt` lands with ADR-002/003).
+- **Every "Fixed" row must have a test row underneath it.** This checklist is
+  a review tool, not just a report.
