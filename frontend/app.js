@@ -2,8 +2,26 @@
 const $ = selector => document.querySelector(selector);
 const STAGES = ["Spec", "Ready", "Building", "Checks", "Validation", "Done"];
 const MOVES = {Spec:["Ready"], Ready:["Building"], Building:["Checks"], Checks:["Validation","Building"], Validation:["Done","Building"], Done:[]};
+let dragCard = null; // {id, stage} of the card currently being dragged; read by column dragover to decide a legal highlight.
 const state = {projects:[], chatProjectId:null, projectEdit:null, deletion:null, cards:[], people:[], peopleReady:false, selected:null, opener:null, detailsVersion:0, loadVersion:0, history:[], chatBusy:false, personEdit:null, chatId:crypto.randomUUID(), proposal:null, lastCreated:[], threadId:null, threadVersion:0, threadBusy:false, selectedPRD:null, briefEdit:null, briefs:[], briefSource:"Pasted brief", authEpoch:0, user:null, authMode:"login", inviteToken:null, useKnowledge:false, useAgent:false, knowledgeDocs:[], knowledgePending:[], knowledgeBusy:false};
 
+/* Colour theme — a persisted UI preference (auto | light | dark). "auto" follows
+   the OS via CSS prefers-color-scheme; light/dark force [data-theme] on <html>.
+   Theme choice is a UI setting, not board data, so localStorage is the right home
+   (the app still keeps all board data on the server, never in localStorage). */
+const THEME_KEY = "zero-magic-theme";
+function applyTheme(pref) {
+  const root = document.documentElement;
+  if (pref === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", pref);
+  root.style.colorScheme = pref === "dark" ? "dark" : pref === "light" ? "light" : "";
+  for (const b of document.querySelectorAll(".theme-toggle [data-theme-pref]"))
+    b.setAttribute("aria-pressed", String(b.dataset.themePref === pref));
+}
+function initTheme() {
+  applyTheme(localStorage.getItem(THEME_KEY) || "auto");
+  for (const b of document.querySelectorAll(".theme-toggle [data-theme-pref]"))
+    b.addEventListener("click", () => { const p = b.dataset.themePref; localStorage.setItem(THEME_KEY, p); applyTheme(p); });
+}
 function node(tag, className, text) {
   const el = document.createElement(tag);
   if (className) el.className = className;
@@ -87,6 +105,19 @@ function upsert(card) {
   if (i < 0) state.cards.push(card); else state.cards[i] = {...state.cards[i],...card};
   renderBoard();
 }
+// Drag-and-drop just calls the same validated stage endpoint the details dialog uses,
+// so illegal transitions and the Building prerequisite guard are still enforced by the
+// server (409). On success we re-render from the server's response; on failure the board
+// stays put and the message explains why.
+async function moveCardStage(id, stage) {
+  try {
+    const updated = await api(`/api/v1/cards/${id}/stage`, json("PATCH", {stage}));
+    state.loadVersion++; upsert(updated);
+    notify("#message", `Moved card #${id} to ${updated.stage}.`);
+  } catch (error) {
+    notify("#message", error.message, true);
+  }
+}
 async function loadBoard() {
   const version = ++state.loadVersion;
   const cards = await api("/api/v1/cards");
@@ -123,27 +154,39 @@ function renderBoard() {
     const heading = node("div", "column-header");
     const dot = node("span", "stage-dot"); dot.setAttribute("aria-hidden","true");
     heading.append(dot, node("h3", "", stage), node("span", "column-count", matches.length));
+    const add = button("+", "column-add"); add.setAttribute("aria-label", `Add a card`); add.title = "Add a card (new cards start in Spec)";
+    add.addEventListener("click", () => openCreate(add)); heading.append(add);
     column.append(heading);
     if (!matches.length) column.append(node("p", "column-empty", "No cards"));
+    column.addEventListener("dragover", event => {
+      if (!dragCard || dragCard.stage === stage || !MOVES[dragCard.stage].includes(stage)) return;
+      event.preventDefault(); event.dataTransfer.dropEffect = "move"; column.classList.add("drop-target");
+    });
+    column.addEventListener("dragleave", event => { if (!column.contains(event.relatedTarget)) column.classList.remove("drop-target"); });
+    column.addEventListener("drop", event => {
+      event.preventDefault(); column.classList.remove("drop-target");
+      const id = Number(event.dataTransfer.getData("text/plain"));
+      if (!id || !dragCard || dragCard.stage === stage || !MOVES[dragCard.stage].includes(stage)) return;
+      moveCardStage(id, stage);
+    });
     for (const card of matches) {
       const article = node("article", "board-card"); article.dataset.cardId = card.id;
-      article.tabIndex = 0; article.setAttribute("aria-label", `Open card ${card.id}: ${card.title}`);
+      article.tabIndex = 0; article.setAttribute("aria-label", `Open card ${card.id}: ${card.title}. Drag to the next or previous stage to move it.`);
       const open = () => openCard(card.id, article).catch(e => notify("#message",e.message,true));
       article.addEventListener("click", event => {if (!event.target.closest("button,input,textarea,form,select")) open();});
       article.addEventListener("keydown", event => {if (event.target === article && ["Enter"," "].includes(event.key)) {event.preventDefault(); open();}});
-      article.append(node("p", "card-ref", `#${card.id}`));
+      article.draggable = true;
+      article.addEventListener("dragstart", event => { dragCard = {id:card.id, stage:card.stage}; event.dataTransfer.setData("text/plain", String(card.id)); event.dataTransfer.effectAllowed = "move"; article.classList.add("dragging"); });
+      article.addEventListener("dragend", () => { dragCard = null; article.classList.remove("dragging"); document.querySelectorAll(".board-column.drop-target").forEach(c => c.classList.remove("drop-target")); });
       const title = button(card.title,"editable card-title"); title.setAttribute("aria-label",`Edit title: ${card.title}`);
       title.addEventListener("click", () => editField(title, card, "title", false));
-      const goal = button(card.goal,"editable card-goal"); goal.setAttribute("aria-label",`Edit goal for ${card.title}`);
-      goal.addEventListener("click", () => editField(goal, card, "goal", true));
       const label=projectBadge(card.project_id,true);label.addEventListener("click",async()=>{try{await openCard(card.id,label);$("#card-project").focus();}catch(e){notify("#message",e.message,true);}});
-      article.append(label,title,goal);
+      article.append(label,title);
       const bottom = node("div","card-bottom");
       const assign = button("", "member-chip"); const name = assigneeName(card);
       assign.setAttribute("aria-label",`Assign ${card.title}. Current: ${name}`);
-      if (card.assignee) bottom.title = name;
-      if (card.assignee) assign.append(node("span","avatar",initials(name)));
-      assign.append(node("span","",name));
+      assign.title = name;
+      assign.append(node("span", card.assignee ? "avatar" : "avatar avatar-none", card.assignee ? initials(name) : ""));
       assign.addEventListener("click", async () => {
         try {await openCard(card.id,assign); $("#assignee-select").focus();} catch(e) {notify("#message",e.message,true);}
       });
@@ -153,9 +196,6 @@ function renderBoard() {
       discussion.addEventListener("click", () => openThread(card.id,discussion).catch(e=>notify("#message",e.message,true)));
       bottom.append(assign,discussion); article.append(bottom);
       column.append(article);
-    }
-    if (stage === "Spec") {
-      const add = button("+ Add a card", "add-in-column"); add.addEventListener("click", () => openCreate(add)); column.append(add);
     }
     board.append(column);
   }
@@ -971,6 +1011,7 @@ $("#use-agent").addEventListener("click",event=>{
   notify("#chat-message",state.useAgent ? "Agent mode: normal messages go through tools. It can search cards, read, and ask documents immediately; creating, moving, or commenting only ever stage a preview for your approval — never an automatic change." : "Agent mode off. Back to planning chat.");
 });
 async function start() {
+  initTheme();
   const token=new URLSearchParams(location.hash.slice(1)).get("invite");
   if(token){
     history.replaceState(null,"",location.pathname);state.inviteToken=token;
