@@ -358,17 +358,23 @@ requires documented limitations.
 
 ## A06 — Vulnerable and Outdated Components
 - **Risk:** unpinned transitive dependencies, unknown CVE exposure.
-- **In the repo:** **partial.** Vendored frontend libs are pinned by copy
+- **In the repo:** **pinned.** Frontend libs are vendored by copy
   (`frontend/vendor/marked@18.1.2`, `frontend/vendor/purify@3.4.17`) — no
-  CDN at runtime, no `npm install` in the browser path. Python side has
-  pinned patches (`requirements-prd.txt` = `instructor==1.17.0`;
-  `requirements-documents.txt` = `pypdf==6.19.0`, `defusedxml==0.7.1`), but
-  `fastapi`, `uvicorn`, `pytest`, `openai`, `python-dotenv`, `fastembed` are
-  **not recorded anywhere** — no base `requirements.txt`, no lockfile, so a
-  fresh machine cannot reproduce `.venv` (PROJECT-KNOWLEDGE.md §11.7).
-- **Status:** **Known gap (recorded).** Fix = add a base `requirements.txt`
-  pinning the six unrecorded packages, alongside the Postgres branch work
-  (deliverable 8's own PR, since `psycopg` and `alembic` land there too).
+  CDN at runtime, no `npm install` in the browser path. Python side has a
+  base `requirements.txt` recording every direct dep at the exact version
+  in the working `.venv` (`fastapi==0.156.7`, `starlette==1.9.0`,
+  `uvicorn==0.54.0`, `pydantic==2.14.1`, `python-dotenv==1.2.4`,
+  `openai==3.3.0`, `instructor==1.17.0`, `httpx==0.28.1`, `pypdf==6.19.0`,
+  `defusedxml==0.7.1`, `fastembed==0.9.1`, `pytest==9.1.1`). The two
+  per-feature patch files (`requirements-prd.txt`, `requirements-documents.txt`)
+  remain as incremental-install shortcuts; their versions match the base pins.
+- **Status:** **Fixed** in this PR. PROJECT-KNOWLEDGE.md §11.7 is closed.
+- **Known gap (recorded):** no *transitive* lockfile (`pip-compile`/
+  `uv pip compile` output or `pip freeze`-style pinning of the ~70 packages
+  fastembed + openai + instructor pull in). Deliberate for now — the base
+  manifest is the reproducible install; a full lockfile lands alongside
+  whatever CI picks the pins (PROJECT-KNOWLEDGE.md §10 item 8, Week-7 CI plan
+  in `docs/architecture-critique.md` — "Gitea Actions … bandit, pip-audit").
 
 ## A07 — Identification and Authentication Failures
 - **Risk:** credential stuffing, session fixation, replayed tokens.

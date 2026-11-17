@@ -662,8 +662,11 @@ no secrets committed, documented limitations.
   (envFile in terminals). Gitignored: venvs, `.env`, `data/`, `backups/`, sqlite/wal/shm,
   exports.
 - Requirement patches: `requirements-prd.txt` (`instructor==1.17.0`),
-  `requirements-documents.txt` (`pypdf==6.19.0`, `defusedxml==0.7.1`). **No base
-  requirements.txt/lockfile** exists for fastapi/uvicorn/pytest/openai/dotenv/fastembed.
+  `requirements-documents.txt` (`pypdf==6.19.0`, `defusedxml==0.7.1`). **Base
+  `requirements.txt` (Week 6)** pins every direct dep at the `.venv` version —
+  fastapi/uvicorn/starlette/pydantic/python-dotenv/openai/instructor/httpx/
+  pypdf/defusedxml/fastembed/pytest. Transitive lockfile not committed; see
+  OWASP A06 in `architecture.md` for the follow-on.
 
 ---
 
@@ -732,9 +735,12 @@ Collected from the docs' explicit "still open"/"next steps"/"out of scope" lines
 5. ~~**Junk files**~~ — **REMOVED Week 5**: the two `less`-pager dump files were deleted.
 6. **Three venvs** — `.venv` (canonical, has fastembed), `.venv-1` (empty),
    `.venv-2` (instructor-only) clutter the repo footprint.
-7. **No base dependency manifest** — pinned patches exist, but fastapi/uvicorn/pytest/
+7. ~~**No base dependency manifest** — pinned patches exist, but fastapi/uvicorn/pytest/
    openai/python-dotenv/fastembed versions aren't recorded anywhere; a fresh machine can't
-   reproduce the environment exactly.
+   reproduce the environment exactly.~~ — **FIXED Week 6**: `requirements.txt` records
+   every direct dep at the exact `.venv` version; `requirements-prd.txt` and
+   `requirements-documents.txt` remain as incremental-install shortcuts with matching
+   pins. Transitive lockfile still open, tracked under OWASP A06 in `architecture.md`.
 8. **Live brief titled "project"** — the sole project name is generic ("project"); harmless,
    just noting the DB state matches the docs' "name always shown, color never sole meaning"
    principle.

@@ -39,11 +39,12 @@ python -m pytest tests/test_cards.py -q      # single file (same for -k selector
   import**. If pytest raises "Application imported before test database selection",
   something imported `app.storage` too early — restart the pytest session, don't fix by
   reordering inside the app.
-- There is no base requirements.txt pinning fastapi/uvicorn/etc. Install patches:
-  `requirements-prd.txt` (instructor), `requirements-documents.txt` (pypdf, defusedxml).
-  Working env lives only in `.venv`; don't assume a fresh `pip install -r` reproduces it.
-  This is OWASP A06 (Vulnerable Components) — recorded in `architecture.md`; fix = add
-  `requirements.txt` alongside the Postgres branch work.
+- Base dependencies live in `requirements.txt` (added Week 6 to close OWASP A06 and
+  PROJECT-KNOWLEDGE.md §11.7 — every direct dep pinned at the exact `.venv` version).
+  `requirements-prd.txt` (instructor) and `requirements-documents.txt` (pypdf,
+  defusedxml) remain as incremental-install shortcuts; their pins match `requirements.txt`.
+  Working env lives only in `.venv`; don't assume a fresh `pip install -r` reproduces
+  the transitive closure exactly (a lockfile is not committed).
 - No lint/format/typecheck tooling is configured. No CI, no git hooks.
 
 ## Environment

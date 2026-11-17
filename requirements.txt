@@ -1,0 +1,46 @@
+# Zero Magic — canonical Python dependencies.
+#
+# A fresh machine reproduces `.venv` with:
+#
+#     python -m venv .venv
+#     .\.venv\Scripts\Activate.ps1
+#     python -m pip install -r requirements.txt
+#
+# This file exists because PROJECT-KNOWLEDGE.md §11.7 and the OWASP A06 row in
+# `architecture.md` both called out that the previous state — only
+# `requirements-prd.txt` and `requirements-documents.txt` as *incremental
+# install patches* — left fastapi/uvicorn/pytest/openai/python-dotenv/fastembed
+# unpinned, so a fresh checkout could not exactly reproduce the working env.
+# The two patch files stay in the repo (they still work and the per-week guides
+# reference them); their versions match the pins below.
+
+# Web + ASGI -----------------------------------------------------------------
+fastapi==0.156.7
+starlette==1.9.0
+uvicorn==0.54.0
+
+# Validation / typed schemas -------------------------------------------------
+pydantic==2.14.1
+
+# Environment ---------------------------------------------------------------
+python-dotenv==1.2.4
+
+# Model layer (Groq via OpenAI SDK, structured output via Instructor,
+# test transport via httpx.MockTransport) ------------------------------------
+openai==3.3.0
+instructor==1.17.0
+httpx==0.28.1
+
+# Document parsing (PDF + hardened DOCX; child process runs `-E -P` without
+# the API key in its env — see app/documents.py and OWASP A03/A10) ------------
+pypdf==6.19.0
+defusedxml==0.7.1
+
+# Embeddings for /knowledge/embed (lazily imported; first run downloads ~80 MB
+# sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 ONNX weights) ---
+fastembed==0.9.1
+
+# Test suite -----------------------------------------------------------------
+# Mocked provider calls, throwaway SQLite via tests/conftest.py's ZERO_MAGIC_DB,
+# ~280 tests, ~100 s, zero network. No Groq key needed.
+pytest==9.1.1
